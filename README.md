@@ -19,7 +19,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 ## Features
 
 - Tracks multiple teams and players across different sports (football, basketball, tennis, esports and more)
-- Automatically creates and updates Google Calendar events with match details
+- Automatically creates and updates Google Calendar events with match details, including when the time, the teams, the tournament or the stage change
 - Automatically removes calendar events for cancelled or rescheduled matches (detected via API status or disappearance from the schedule)
 - Falls back to alternative API endpoints when the primary one returns no results
 - Supports predefined query files for fully automated runs

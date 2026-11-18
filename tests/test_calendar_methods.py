@@ -11,12 +11,12 @@ FUTURE_START_TIME = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.t
 
 
 def make_match(game_id="123", side_one="Team A", side_two="Team B", start_time=FUTURE_START_TIME,
-               home_team_id="h1", away_team_id="a1"):
+               home_team_id="h1", away_team_id="a1", tournament="Some League", stage="Round 1"):
     return Match(
         side_one=side_one,
         side_two=side_two,
-        tournament="Some League",
-        stage="Round 1",
+        tournament=tournament,
+        stage=stage,
         game_id=game_id,
         sport="football",
         start_time=start_time,
@@ -26,11 +26,11 @@ def make_match(game_id="123", side_one="Team A", side_two="Team B", start_time=F
 
 
 def make_existing_event(game_id="123", side_one="Team A", side_two="Team B", start_time=FUTURE_START_TIME,
-                        home_team_id="h1", away_team_id="a1"):
-    """Helper to create a fake existing calendar event using extendedProperties."""
+                        home_team_id="h1", away_team_id="a1", tournament="Some League", stage="Round 1"):
+    """Helper to create a fake existing calendar event, shaped like one this app created for a football match."""
     return {
         "id": "google_event_id_abc",
-        "summary": f"{side_one} vs {side_two} - Some League (Round 1)",
+        "summary": f"⚽ {side_one} vs {side_two} - {tournament} ({stage})",
         "description": "Last updated: 2025-01-01 00:00:00",
         "start": {"dateTime": start_time.isoformat()},
         "extendedProperties": {
@@ -436,3 +436,37 @@ def test_event_body_stores_empty_string_for_missing_team_ids():
 
     assert props["home_team_id"] == ""
     assert props["away_team_id"] == ""
+
+
+# --- update_events: title changes ---
+
+def test_updates_event_when_tournament_changed():
+    """A new tournament name updates the title (seen in prod: an 'NBA 26/27' game renamed to 'NBA Cup 2026')."""
+    mock_service = make_mock_service([make_existing_event(tournament="NBA 26/27")])
+
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+                  game_list=[make_match(tournament="NBA Cup 2026")])
+
+    body = mock_service.events().update.call_args.kwargs["body"]
+    assert body["summary"] == "⚽ Team A vs Team B - NBA Cup 2026 (Round 1)"
+
+
+def test_updates_event_when_stage_changed():
+    """A new stage name (for example a round that gets its real name) updates the title."""
+    mock_service = make_mock_service([make_existing_event(stage="Round 4")])
+
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+                  game_list=[make_match(stage="Quarterfinal")])
+
+    mock_service.events().update.assert_called_once()
+
+
+def test_does_not_update_when_title_and_details_unchanged():
+    """An event whose title and stored details all match is left alone, so no Calendar call is wasted."""
+    mock_service = make_mock_service([make_existing_event(tournament="NBA 26/27", stage="NBA")])
+
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+                  game_list=[make_match(tournament="NBA 26/27", stage="NBA")])
+
+    mock_service.events().update.assert_not_called()
+    mock_service.events().insert.assert_not_called()
