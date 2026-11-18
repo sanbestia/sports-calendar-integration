@@ -1,0 +1,27 @@
+name: Tests
+
+# Runs on every pull request (the required "test" check for merging into main)
+# and is called by deploy.yml, so a deploy only happens after the suite passes.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies from the lock file
+        run: uv sync --frozen  # the Python version comes from .python-version
+
+      - name: Run tests
+        run: uv run pytest -q  # no .env in CI; conftest.py provides a fake RAPIDAPI_KEY

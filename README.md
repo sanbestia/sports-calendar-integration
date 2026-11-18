@@ -160,6 +160,13 @@ You will be prompted to enter team/player names, select from results, and provid
 uv run pytest -v
 ```
 
+The tests need no secrets: `conftest.py` sets a fake `RAPIDAPI_KEY`, and every API and Calendar call is mocked.
+
+### Continuous integration
+
+- `.github/workflows/tests.yml` runs the test suite on every pull request. A ruleset on `main` makes its `test` check required before a merge.
+- `.github/workflows/deploy.yml` runs on every push to `main`. It calls the same test workflow first and deploys to the Oracle VM only if the tests pass.
+
 ---
 
 ## Database Analytics

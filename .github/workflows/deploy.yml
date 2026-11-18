@@ -6,7 +6,11 @@ on:
       - main
 
 jobs:
+  test:
+    uses: ./.github/workflows/tests.yml
+
   deploy:
+    needs: test  # deploy only when the test suite passes
     runs-on: ubuntu-latest
     steps:
       - name: Update system packages on VM
