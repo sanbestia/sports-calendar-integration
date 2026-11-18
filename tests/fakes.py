@@ -1,5 +1,9 @@
 """Small fakes that tests pass in through dependency injection, instead of patching module globals."""
+import json
 from datetime import date, datetime, timedelta, timezone
+from unittest.mock import MagicMock
+
+from objects.AllSportsClient import AllSportsClient
 
 
 class FakeClock:
@@ -36,3 +40,40 @@ class ScriptedInput:
         if not self._answers:
             raise AssertionError(f"No scripted answer left for prompt: {prompt!r}")
         return self._answers.pop(0)
+
+
+class FakeResponse:
+    """The part of requests.Response that the client reads."""
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+class FakeSession:
+    """Stands in for requests.Session: returns queued replies in order and records each request.
+
+    A reply is a dict (sent as its JSON), a str (sent as the raw body; "" is an empty body),
+    or an exception instance or class (raised, as a failed request would).
+    """
+
+    def __init__(self, *replies):
+        self._replies = list(replies)
+        self.requests: list[dict] = []
+
+    @property
+    def urls(self) -> list[str]:
+        return [r["url"] for r in self.requests]
+
+    def get(self, url: str, headers: dict | None = None, timeout: float | None = None) -> FakeResponse:
+        self.requests.append({"url": url, "headers": headers, "timeout": timeout})
+        if not self._replies:
+            raise AssertionError(f"Unexpected request: {url}")
+        reply = self._replies.pop(0)
+        if isinstance(reply, BaseException) or (isinstance(reply, type) and issubclass(reply, BaseException)):
+            raise reply
+        return FakeResponse(reply if isinstance(reply, str) else json.dumps(reply))
+
+
+def make_client(session: FakeSession, tracker=None) -> AllSportsClient:
+    """An AllSportsClient with a fake key, the given fake session, and a mock call tracker by default."""
+    return AllSportsClient(api_key="test-key", tracker=tracker if tracker is not None else MagicMock(), session=session)

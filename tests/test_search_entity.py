@@ -1,30 +1,15 @@
 import json
 import pytest
 import requests
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
+from tests.fakes import FakeSession, make_client
+
+INVALID_JSON = "<html>Internal Server Error</html>"
 from functions.search_entity import search_entity, pick_entity
 from tests.fakes import ScriptedInput
 
 
 # --- Helpers ---
-
-def make_mock_response(data: dict) -> MagicMock:
-    mock = MagicMock()
-    mock.text = json.dumps(data)
-    return mock
-
-
-def make_mock_empty_response() -> MagicMock:
-    mock = MagicMock()
-    mock.text = ""
-    return mock
-
-
-def make_mock_invalid_response() -> MagicMock:
-    mock = MagicMock()
-    mock.text = "<html>Internal Server Error</html>"
-    return mock
-
 
 FAKE_TEAM_ENTITY = {
     "results": [
@@ -84,9 +69,8 @@ FAKE_MULTIPLE_ENTITIES = {
 
 def test_search_entity_returns_list_of_hits():
     """Returns a list of hits for a valid search."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_TEAM_ENTITY)
-        result = search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession(FAKE_TEAM_ENTITY)
+    result = search_entity(make_client(session), "spurs", "basketball")
 
     assert len(result) == 1
     assert result[0]["id"] == "3429"
@@ -96,18 +80,16 @@ def test_search_entity_returns_list_of_hits():
 
 def test_search_entity_sets_player_type_team_when_no_player_team_info():
     """Sets player_type to 'team' when entity has no playerTeamInfo."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_TEAM_ENTITY)
-        result = search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession(FAKE_TEAM_ENTITY)
+    result = search_entity(make_client(session), "spurs", "basketball")
 
     assert result[0]["player_type"] == "team"
 
 
 def test_search_entity_sets_player_type_player_when_player_team_info_present():
     """Sets player_type to 'player' when entity has playerTeamInfo."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_PLAYER_ENTITY)
-        result = search_entity("alcaraz", "tennis", MagicMock())
+    session = FakeSession(FAKE_PLAYER_ENTITY)
+    result = search_entity(make_client(session), "alcaraz", "tennis")
 
     assert result[0]["player_type"] == "player"
     assert result[0]["id"] == "275923"
@@ -115,45 +97,40 @@ def test_search_entity_sets_player_type_player_when_player_team_info_present():
 
 def test_search_entity_returns_empty_list_on_empty_response():
     """Returns empty list when API returns an empty response."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_empty_response()
-        result = search_entity("zzzzz", "basketball", MagicMock())
+    session = FakeSession("")
+    result = search_entity(make_client(session), "zzzzz", "basketball")
 
     assert result == []
 
 
 def test_search_entity_returns_empty_list_on_invalid_json():
     """Returns empty list when API returns invalid JSON."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_invalid_response()
-        result = search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession(INVALID_JSON)
+    result = search_entity(make_client(session), "spurs", "basketball")
 
     assert result == []
 
 
 def test_search_entity_returns_empty_list_on_invalid_response_structure():
     """Returns empty list when API returns valid JSON but unexpected structure."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response({"results": [{"no_entity_key": True}]})
-        result = search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession({"results": [{"no_entity_key": True}]})
+    result = search_entity(make_client(session), "spurs", "basketball")
 
     assert result == []
 
 
 def test_search_entity_returns_empty_list_on_connection_error():
     """Returns empty list gracefully when a network error occurs."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.ConnectionError
-        result = search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession(requests.exceptions.ConnectionError)
+    result = search_entity(make_client(session), "spurs", "basketball")
 
     assert result == []
 
 
 def test_search_entity_returns_empty_list_on_timeout():
     """Returns empty list gracefully when a timeout occurs."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.Timeout
-        result = search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession(requests.exceptions.Timeout)
+    result = search_entity(make_client(session), "spurs", "basketball")
 
     assert result == []
 
@@ -161,9 +138,8 @@ def test_search_entity_returns_empty_list_on_timeout():
 def test_search_entity_increments_tracker():
     """Increments the tracker on a successful request."""
     mock_tracker = MagicMock()
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_TEAM_ENTITY)
-        search_entity("spurs", "basketball", mock_tracker)
+    session = FakeSession(FAKE_TEAM_ENTITY)
+    search_entity(make_client(session, mock_tracker), "spurs", "basketball")
 
     mock_tracker.increment.assert_called_once()
 
@@ -171,39 +147,35 @@ def test_search_entity_increments_tracker():
 def test_search_entity_does_not_increment_tracker_on_error():
     """Does not increment the tracker when a network error occurs."""
     mock_tracker = MagicMock()
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.ConnectionError
-        search_entity("spurs", "basketball", mock_tracker)
+    session = FakeSession(requests.exceptions.ConnectionError)
+    search_entity(make_client(session, mock_tracker), "spurs", "basketball")
 
     mock_tracker.increment.assert_not_called()
 
 
 def test_search_entity_omits_sport_segment_for_football():
     """Builds URL without sport segment for football."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_TEAM_ENTITY)
-        search_entity("argentina", "football", MagicMock())
+    session = FakeSession(FAKE_TEAM_ENTITY)
+    search_entity(make_client(session), "argentina", "football")
 
-    called_url = mock_get.call_args[0][0]
+    called_url = session.urls[-1]
     assert "/football/" not in called_url
     assert "/search/argentina" in called_url
 
 
 def test_search_entity_includes_sport_segment_for_non_football():
     """Builds URL with sport segment for non-football sports."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_TEAM_ENTITY)
-        search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession(FAKE_TEAM_ENTITY)
+    search_entity(make_client(session), "spurs", "basketball")
 
-    called_url = mock_get.call_args[0][0]
+    called_url = session.urls[-1]
     assert "/basketball/search/spurs" in called_url
 
 
 def test_search_entity_returns_multiple_hits():
     """Returns all hits when API returns multiple results."""
-    with patch("functions.search_entity.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_MULTIPLE_ENTITIES)
-        result = search_entity("spurs", "basketball", MagicMock())
+    session = FakeSession(FAKE_MULTIPLE_ENTITIES)
+    result = search_entity(make_client(session), "spurs", "basketball")
 
     assert len(result) == 2
 
@@ -294,12 +266,3 @@ def test_pick_entity_retries_on_out_of_range_input():
 def test_pick_entity_retries_on_invalid_confirmation():
     result = pick_entity(FAKE_HITS, ask=ScriptedInput("1", "maybe", "Y"))
     assert result["id"] == "3429"
-
-def test_search_entity_raises_when_api_key_missing(monkeypatch):
-    """Fails fast, with no request, when RAPIDAPI_KEY is not set."""
-    monkeypatch.delenv("RAPIDAPI_KEY")
-    with patch("functions.search_entity.requests.get") as mock_get:
-        with pytest.raises(ValueError, match="RAPIDAPI_KEY"):
-            search_entity("Lakers", "basketball", tracker=MagicMock())
-
-    mock_get.assert_not_called()

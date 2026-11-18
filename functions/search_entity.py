@@ -1,55 +1,25 @@
 import logging
-import os
-import requests
-import json
 from collections.abc import Callable
-from pydantic import ValidationError
-from objects.APICallTracker import APICallTracker
+from objects.AllSportsClient import AllSportsClient, AllSportsError
 from objects.schemas import SearchResponse
 from functions.utils import sanitize_for_log, _ask_yes_no
 
 logger = logging.getLogger(__name__)
 
 
-def search_entity(name: str, sport: str, tracker: APICallTracker) -> list[dict]:
+def search_entity(client: AllSportsClient, name: str, sport: str) -> list[dict]:
     """Search the AllSports API for a player or team by name and sport.
     Returns a list of result dicts, each containing 'id', 'name', 'type', 'gender', and 'sport'."""
-    api_key = os.getenv("RAPIDAPI_KEY")
-    if not api_key:
-        raise ValueError("RAPIDAPI_KEY environment variable is not set")
-
     # football is the API default and has no sport prefix in the path; all other sports are prefixed
-    url: str = (
-        f"https://allsportsapi2.p.rapidapi.com/api/"
-        f"{'' if sport.lower() == 'football' else sport.lower() + '/'}"
-        f"search/{name.lower()}"
-    )
-
-    headers: dict[str, str] = {
-        "X-RapidAPI-Key": api_key,
-        "X-RapidAPI-Host": "allsportsapi2.p.rapidapi.com"
-    }
+    path = f"{'' if sport.lower() == 'football' else sport.lower() + '/'}search/{name.lower()}"
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        tracker.increment()
-    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-        logger.error(f"Couldn't communicate with sports API: {e}")
+        parsed = client.get(path, SearchResponse)
+    except AllSportsError as e:
+        logger.error(f"Search for '{sanitize_for_log(name)}' failed: {e}")
         return []
 
-    if not response.text:
-        return []
-
-    try:
-        raw = json.loads(response.text)
-    except json.JSONDecodeError:
-        logger.error(f"Invalid JSON response for search '{sanitize_for_log(name)}': {sanitize_for_log(response.text[:200])}")
-        return []
-
-    try:
-        parsed = SearchResponse.model_validate(raw)
-    except ValidationError as e:
-        logger.error(f"Unexpected response structure for search '{sanitize_for_log(name)}': {e}")
+    if parsed is None:  # empty body: no results
         return []
 
     hits = []
