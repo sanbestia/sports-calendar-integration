@@ -535,43 +535,42 @@ def test_stale_teams_returns_empty_on_empty_db(empty_fetch_db):
 # Command line (main)
 # ============================================================
 
-def run_cli(monkeypatch, *argv: str) -> int:
+def run_cli(*argv: str) -> int:
     """Run db_stats.main() with the given arguments and return its exit code (0 when it does not exit)."""
     from functions import db_stats
-    monkeypatch.setattr("sys.argv", ["db_stats.py", *argv])
     try:
-        db_stats.main()
+        db_stats.main(list(argv))
     except SystemExit as e:
         return e.code
     return 0
 
 
-def test_cli_without_function_lists_public_functions(monkeypatch, caplog):
+def test_cli_without_function_lists_public_functions(caplog):
     """With no function name, it lists the public functions and exits 0."""
-    assert run_cli(monkeypatch) == 0
+    assert run_cli() == 0
     assert "calls_today" in caplog.text
     assert "_connect" not in caplog.text
 
 
-def test_cli_runs_function_with_typed_params(monkeypatch, caplog, api_db):
+def test_cli_runs_function_with_typed_params(caplog, api_db):
     """Converts the date parameter and passes the db path through, then prints the result."""
-    assert run_cli(monkeypatch, "calls_on", "2026-01-03", api_db) == 0
+    assert run_cli("calls_on", "2026-01-03", api_db) == 0
     assert "60" in caplog.text
 
 
-def test_cli_rejects_unknown_function(monkeypatch, caplog):
+def test_cli_rejects_unknown_function(caplog):
     """An unknown function name exits 1 with an error."""
-    assert run_cli(monkeypatch, "no_such_function") == 1
+    assert run_cli("no_such_function") == 1
     assert "Unknown function" in caplog.text
 
 
-def test_cli_rejects_missing_required_param(monkeypatch, caplog):
+def test_cli_rejects_missing_required_param(caplog):
     """A missing required parameter exits 1 and names it."""
-    assert run_cli(monkeypatch, "calls_on") == 1
+    assert run_cli("calls_on") == 1
     assert "Missing: day" in caplog.text
 
 
-def test_cli_rejects_badly_typed_param(monkeypatch, caplog):
+def test_cli_rejects_badly_typed_param(caplog):
     """A value that does not convert to the declared type exits 1."""
-    assert run_cli(monkeypatch, "calls_on", "not-a-date") == 1
+    assert run_cli("calls_on", "not-a-date") == 1
     assert "Bad value for 'day'" in caplog.text

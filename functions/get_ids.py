@@ -1,26 +1,27 @@
 import logging
+from collections.abc import Callable
 from functions.search_entity import search_entity, pick_entity
 from functions.utils import _ask_yes_no
 
 logger = logging.getLogger(__name__)
 
 
-def _ask_non_empty(prompt: str) -> str:
+def _ask_non_empty(prompt: str, ask: Callable[[str], str] = input) -> str:
     """Prompt the user until they enter a non-empty string."""
     while True:
-        value = input(prompt).strip()
+        value = ask(prompt).strip()
         if value:
             return value
         logger.info("This field cannot be empty, please try again.")
 
 
-def get_ids(tracker=None) -> dict[str, dict[str, str]]:
+def get_ids(tracker=None, ask: Callable[[str], str] = input) -> dict[str, dict[str, str]]:
     """Interactively search for players/teams and return a mapping of entity ID to name, sport, and player_type."""
     id_dict: dict[str, dict[str, str]] = {}
 
     while True:
-        name: str = _ask_non_empty("Enter player/team name: ")
-        sport: str = _ask_non_empty("Enter sport to look for: ")
+        name: str = _ask_non_empty("Enter player/team name: ", ask)
+        sport: str = _ask_non_empty("Enter sport to look for: ", ask)
 
         hits = search_entity(name, sport, tracker=tracker)
 
@@ -28,7 +29,7 @@ def get_ids(tracker=None) -> dict[str, dict[str, str]]:
             logger.info("No player/team found with that name, please try again.")
             continue
 
-        chosen = pick_entity(hits)
+        chosen = pick_entity(hits, ask)
         if chosen:  # None when user declines; still falls through to the search-again prompt so they can exit without selecting
             id_dict[chosen["id"]] = {  # keyed by entity ID; re-adding the same entity overwrites rather than duplicates
                 "name": chosen["name"],
@@ -36,7 +37,7 @@ def get_ids(tracker=None) -> dict[str, dict[str, str]]:
                 "player_type": chosen["player_type"]
             }
 
-        if not _ask_yes_no("Search for another player/team? Y/N: "):
+        if not _ask_yes_no("Search for another player/team? Y/N: ", ask):
             return id_dict
 
         logger.info("")

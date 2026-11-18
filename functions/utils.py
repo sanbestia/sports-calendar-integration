@@ -1,6 +1,7 @@
 import datetime
 import re
 import logging
+from collections.abc import Callable
 
 from objects.Clock import Clock
 
@@ -26,10 +27,10 @@ def sanitize_for_log(value: str) -> str:
     value = value.replace('\n', ' ').replace('\r', ' ')
     return value.strip()
 
-def _ask_yes_no(prompt: str) -> bool:
+def _ask_yes_no(prompt: str, ask: Callable[[str], str] = input) -> bool:
     """Prompt the user with a Y/N question, re-asking until a valid answer is given."""
     while True:
-        answer = input(prompt).strip().upper()
+        answer = ask(prompt).strip().upper()
         if answer in ("Y", "N"):
             return answer == "Y"
         logger.info("Please answer Y or N.")

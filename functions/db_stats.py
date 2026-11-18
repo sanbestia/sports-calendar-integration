@@ -264,8 +264,8 @@ def stale_teams(hours: float = 48, db_path: str = FETCH_LOG_DB, raw: bool = Fals
     return result
 
 
-def main() -> None:
-    """CLI entry point: call any public function in this module by name."""
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point: call any public function in this module by name (argv defaults to sys.argv[1:])."""
     import argparse
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -286,7 +286,7 @@ def main() -> None:
     _parser = argparse.ArgumentParser(prog="db_stats.py", add_help=True)
     _parser.add_argument("function", nargs="?", metavar="FUNCTION")
     _parser.add_argument("params", nargs="*", metavar="PARAM")
-    _args = _parser.parse_args()
+    _args = _parser.parse_args(argv)
 
     if not _args.function:
         _log.warning("No function specified.")

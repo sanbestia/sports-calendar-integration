@@ -2,6 +2,7 @@ import logging
 import os
 import requests
 import json
+from collections.abc import Callable
 from pydantic import ValidationError
 from objects.APICallTracker import APICallTracker
 from objects.schemas import SearchResponse
@@ -65,7 +66,7 @@ def search_entity(name: str, sport: str, tracker: APICallTracker) -> list[dict]:
     return hits
 
 
-def pick_entity(hits: list[dict]) -> dict | None:
+def pick_entity(hits: list[dict], ask: Callable[[str], str] = input) -> dict | None:
     """Present a list of search hits to the user and return the chosen one, or None if rejected."""
     if not hits:
         logger.info("No results found.")
@@ -82,7 +83,7 @@ def pick_entity(hits: list[dict]) -> dict | None:
 
         while True:
             try:
-                index = int(input(f"Type a number between 1 and {len(hits)}: ")) - 1
+                index = int(ask(f"Type a number between 1 and {len(hits)}: ")) - 1
                 if 0 <= index < len(hits):
                     break
                 logger.info(f"Please enter a number between 1 and {len(hits)}.")
@@ -91,7 +92,7 @@ def pick_entity(hits: list[dict]) -> dict | None:
 
         chosen = hits[index]
 
-    if _ask_yes_no(f"Select '{chosen['name']}' ({chosen['player_type']})? Y/N: "):
+    if _ask_yes_no(f"Select '{chosen['name']}' ({chosen['player_type']})? Y/N: ", ask):
         return chosen
 
     logger.info("Choice discarded.")
