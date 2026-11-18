@@ -1,10 +1,10 @@
 import pytest
 import json
 import datetime
-from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
-from tests.fakes import ScriptedInput
-from main import main, load_queries, build_queries_from_get_ids
+from unittest.mock import MagicMock
+from config import MAIN_LOOP_SLEEP_MINUTES
+from main import load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection
+from tests.fakes import FakeClock, FakeSession, ScriptedInput, make_client
 
 
 FAKE_RAW_QUERIES = {
@@ -70,50 +70,48 @@ def test_load_queries_raises_when_required_field_missing(tmp_path):
 
 # --- build_queries_from_get_ids tests ---
 
+SPURS_SEARCH = {"results": [{"entity": {"id": 3429, "name": "San Antonio Spurs", "gender": "M"}}]}
+ALCARAZ_SEARCH = {"results": [{"entity": {"id": 275923, "name": "Carlos Alcaraz", "gender": "M", "playerTeamInfo": {"birthDateTimestamp": 0}}}]}
+T1_SEARCH = {"results": [{"entity": {"id": 364366, "name": "T1"}}]}
+
+
 def test_build_queries_returns_correct_structure():
-    """Returns correctly structured dict from get_ids output."""
-    fake_id_dict = {
-        "3429": {"name": "San Antonio Spurs", "sport": "basketball", "player_type": "team"}
-    }
+    """Search, confirm, and the calendar ID answer become one query entry."""
+    client = make_client(FakeSession(SPURS_SEARCH))
+    ask = ScriptedInput("San Antonio Spurs", "basketball", "Y", "N", "real_basketball_calendar_id")
 
-    with patch("main.get_ids", return_value=fake_id_dict):
-        result = build_queries_from_get_ids(ask=ScriptedInput("real_basketball_calendar_id"))
+    result = build_queries_from_get_ids(client, ask=ask)
 
-    assert "San Antonio Spurs" in result
-    assert result["San Antonio Spurs"]["id"] == "3429"
-    assert result["San Antonio Spurs"]["sport"] == "basketball"
-    assert result["San Antonio Spurs"]["player_type"] == "team"
-    assert result["San Antonio Spurs"]["calendar"] == "real_basketball_calendar_id"
+    assert result == {"San Antonio Spurs": {
+        "id": "3429", "sport": "basketball", "player_type": "team", "calendar": "real_basketball_calendar_id"
+    }}
+    assert ask.prompts[-1] == "Enter calendar id for San Antonio Spurs: "
 
 
 def test_build_queries_preserves_player_type_for_player():
-    """Preserves player_type 'player' when a player entry is built."""
-    fake_id_dict = {
-        "275923": {"name": "Carlos Alcaraz", "sport": "tennis", "player_type": "player"}
-    }
+    """A player hit keeps player_type 'player'."""
+    client = make_client(FakeSession(ALCARAZ_SEARCH))
+    ask = ScriptedInput("Carlos Alcaraz", "tennis", "Y", "N", "real_tennis_calendar_id")
 
-    with patch("main.get_ids", return_value=fake_id_dict):
-        result = build_queries_from_get_ids(ask=ScriptedInput("real_tennis_calendar_id"))
+    result = build_queries_from_get_ids(client, ask=ask)
 
     assert result["Carlos Alcaraz"]["player_type"] == "player"
 
 
 def test_build_queries_handles_multiple_entries():
-    """Correctly builds dict with multiple entries."""
-    fake_id_dict = {
-        "3429":   {"name": "San Antonio Spurs", "sport": "basketball", "player_type": "team"},
-        "364366": {"name": "T1",                "sport": "esport",     "player_type": "team"}
+    """Two searches give two entries, each with its own calendar ID."""
+    client = make_client(FakeSession(SPURS_SEARCH, T1_SEARCH))
+    ask = ScriptedInput("San Antonio Spurs", "basketball", "Y", "Y", "T1", "esport", "Y", "N",
+                        "real_basketball_calendar_id", "real_esports_calendar_id")
+
+    result = build_queries_from_get_ids(client, ask=ask)
+
+    assert {name: q["calendar"] for name, q in result.items()} == {
+        "San Antonio Spurs": "real_basketball_calendar_id", "T1": "real_esports_calendar_id"
     }
 
-    with patch("main.get_ids", return_value=fake_id_dict):
-        result = build_queries_from_get_ids(ask=ScriptedInput("real_basketball_calendar_id", "real_esports_calendar_id"))
 
-    assert len(result) == 2
-    assert "San Antonio Spurs" in result
-    assert "T1" in result
-
-
-# --- main() loop tests ---
+# --- run_cycle / run tests ---
 
 ALCARAZ_QUERIES = {
     "Carlos Alcaraz": {
@@ -123,6 +121,8 @@ ALCARAZ_QUERIES = {
         "calendar": "tennis_calendar_id"
     }
 }
+EARLY = datetime.datetime(2026, 3, 22, 15, 0, 0)
+LATE = datetime.datetime(2026, 3, 29, 15, 0, 0)
 
 
 def make_fake_match(start_time: datetime.datetime) -> MagicMock:
@@ -131,93 +131,111 @@ def make_fake_match(start_time: datetime.datetime) -> MagicMock:
     return fake_match
 
 
-def run_main_one_cycle(queries=ALCARAZ_QUERIES, matches=None, update_side_effect=(1,),
-                       limit_reached=False, should_fetch=True, services=None) -> SimpleNamespace:
-    """Run main() for exactly one loop cycle with every dependency mocked; wait() ends it with SystemExit.
-
-    Returns the mocks so each test can assert on them.
-    """
-    if matches is None:
-        matches = [make_fake_match(datetime.datetime(2026, 3, 22, 15, 0, 0))]
-    fake_args = MagicMock()
-    fake_args.queries = "queries.json"
-
-    api_tracker = MagicMock()
+def make_deps(*, matches=None, sync_side_effect=(1,), limit_reached=False, should_fetch=True, services=None) -> LoopDeps:
+    """Loop dependencies made of mocks and fakes; every collaborator is passed in, nothing is patched."""
+    api_tracker = MagicMock(daily_limit=100)
     api_tracker.is_limit_reached.return_value = limit_reached
     api_tracker.status.return_value = "API calls today: 1/100"
     fetch_tracker = MagicMock()
     fetch_tracker.should_fetch.return_value = should_fetch
     fetch_tracker.hours_until_next_fetch.return_value = 3.0
+    service_iter = iter(services if services is not None else [MagicMock()])
+    return LoopDeps(
+        client=MagicMock(),
+        api_tracker=api_tracker,
+        fetch_tracker=fetch_tracker,
+        calendar=CalendarConnection(lambda: next(service_iter)),
+        clock=FakeClock(),
+        tz=datetime.timezone.utc,
+        fetch_matches=MagicMock(return_value=[make_fake_match(EARLY)] if matches is None else matches),
+        sync_events=MagicMock(side_effect=list(sync_side_effect)),
+    )
 
-    with patch("argparse.ArgumentParser.parse_args", return_value=fake_args), \
-         patch("main.get_localzone", return_value=datetime.timezone.utc), \
-         patch("main.check_calendar_tokens", return_value=MagicMock()) as check_creds, \
-         patch("main.build", side_effect=services) as build, \
-         patch("main.APICallTracker", return_value=api_tracker), \
-         patch("main.FetchTracker", return_value=fetch_tracker), \
-         patch("main.load_queries", return_value=queries), \
-         patch("main.get_next_matches", return_value=matches) as get_matches, \
-         patch("main.update_events", side_effect=list(update_side_effect)) as update, \
-         patch("main.wait", side_effect=SystemExit):
-        with pytest.raises(SystemExit):
-            main()
 
-    return SimpleNamespace(check_creds=check_creds, build=build, get_matches=get_matches, update=update,
-                           api_tracker=api_tracker, fetch_tracker=fetch_tracker)
+def test_fetches_with_client_and_entity_fields():
+    """Each due entity is fetched through the injected client with its own id, sport and type."""
+    deps = make_deps()
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    deps.fetch_matches.assert_called_once_with(
+        deps.client, team_id="275923", team_name="Carlos Alcaraz", sport="tennis", player_type="player", time_zone="UTC"
+    )
+
+
+def test_syncs_to_entity_calendar_with_current_service_and_clock():
+    """Matches go to the entity's calendar, through the current service, with the loop's clock."""
+    deps = make_deps()
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    kwargs = deps.sync_events.call_args.kwargs
+    assert kwargs["calendar_id"] == "tennis_calendar_id"
+    assert kwargs["team_id"] == "275923"
+    assert kwargs["service"] is deps.calendar.service
+    assert kwargs["clock"] is deps.clock
 
 
 def test_records_earliest_match_and_count():
-    """After a sync, the fetch is recorded with the earliest start time and the count from update_events."""
-    early = datetime.datetime(2026, 3, 22, 15, 0, 0)
-    late = datetime.datetime(2026, 3, 29, 15, 0, 0)
-    mocks = run_main_one_cycle(matches=[make_fake_match(late), make_fake_match(early)], update_side_effect=(2,))
+    """After a sync, the fetch is recorded with the earliest start time and the count from the sync."""
+    deps = make_deps(matches=[make_fake_match(LATE), make_fake_match(EARLY)], sync_side_effect=(2,))
+    run_cycle(ALCARAZ_QUERIES, deps)
 
-    mocks.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", early, 2)
+    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 2)
 
 
 def test_skips_calendar_update_when_no_matches():
     """With no matches, the calendar is not touched and the fetch is recorded as empty."""
-    mocks = run_main_one_cycle(matches=[])
+    deps = make_deps(matches=[])
+    run_cycle(ALCARAZ_QUERIES, deps)
 
-    mocks.update.assert_not_called()
-    mocks.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", None, 0)
+    deps.sync_events.assert_not_called()
+    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", None, 0)
 
 
 def test_skips_entity_that_is_not_due():
     """An entity that is not due is not fetched and not recorded."""
-    mocks = run_main_one_cycle(should_fetch=False)
+    deps = make_deps(should_fetch=False)
+    run_cycle(ALCARAZ_QUERIES, deps)
 
-    mocks.get_matches.assert_not_called()
-    mocks.fetch_tracker.record_fetch.assert_not_called()
+    deps.fetch_matches.assert_not_called()
+    deps.fetch_tracker.record_fetch.assert_not_called()
 
 
 def test_stops_fetching_when_daily_limit_reached():
     """When the daily API limit is reached, no entity is fetched for the rest of the cycle."""
     queries = {**ALCARAZ_QUERIES, "T1": {"id": "364366", "sport": "esport", "player_type": "team", "calendar": "esports_calendar_id"}}
-    mocks = run_main_one_cycle(queries=queries, limit_reached=True)
+    deps = make_deps(limit_reached=True)
+    run_cycle(queries, deps)
 
-    mocks.get_matches.assert_not_called()
-    mocks.fetch_tracker.should_fetch.assert_not_called()
+    deps.fetch_matches.assert_not_called()
+    deps.fetch_tracker.should_fetch.assert_not_called()
 
-
-# --- BrokenPipeError reconnection tests ---
 
 def test_reconnects_calendar_service_on_broken_pipe():
-    """Rebuilds the calendar service and retries update_events on BrokenPipeError."""
-    service_after_reconnect = MagicMock()
-    mocks = run_main_one_cycle(update_side_effect=(BrokenPipeError, 1), services=[MagicMock(), service_after_reconnect])
+    """A BrokenPipeError rebuilds the calendar service and retries the sync with the new one."""
+    first, second = MagicMock(), MagicMock()
+    deps = make_deps(sync_side_effect=(BrokenPipeError, 1), services=[first, second])
+    run_cycle(ALCARAZ_QUERIES, deps)
 
-    # Service rebuilt and credentials checked: once at startup + once after BrokenPipeError
-    assert mocks.build.call_count == 2
-    assert mocks.check_creds.call_count == 2
-    # update_events retried with the freshly built service
-    assert mocks.update.call_count == 2
-    assert mocks.update.call_args_list[1].kwargs["service"] is service_after_reconnect
+    assert deps.calendar.service is second
+    assert [c.kwargs["service"] for c in deps.sync_events.call_args_list] == [first, second]
+    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 1)
 
 
-def test_continues_loop_when_retry_also_fails():
-    """Logs the error and continues the loop when the reconnect retry also fails."""
-    mocks = run_main_one_cycle(update_side_effect=(BrokenPipeError, OSError("still down")))
+def test_continues_when_retry_also_fails():
+    """If the retry after reconnecting also fails, the error is logged and the fetch is recorded with 0."""
+    deps = make_deps(sync_side_effect=(BrokenPipeError, OSError("still down")), services=[MagicMock(), MagicMock()])
+    run_cycle(ALCARAZ_QUERIES, deps)
 
-    # Both calls were made; the second failure was absorbed and the loop reached wait()
-    assert mocks.update.call_count == 2
+    assert deps.sync_events.call_count == 2
+    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 0)
+
+
+def test_run_waits_between_cycles():
+    """run() repeats the cycle and waits MAIN_LOOP_SLEEP_MINUTES after each one."""
+    deps = make_deps(sync_side_effect=(1, 1))
+    start = deps.clock.now()
+
+    run(ALCARAZ_QUERIES, deps, max_cycles=2)
+
+    assert deps.fetch_matches.call_count == 2
+    assert deps.clock.now() - start >= datetime.timedelta(minutes=2 * MAIN_LOOP_SLEEP_MINUTES)

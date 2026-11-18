@@ -117,7 +117,7 @@ The `id` values in `queries.json` come from the AllSports API. To look them up, 
 uv run python -m functions.get_ids
 ```
 
-You will be prompted to enter a name and sport, shown a list of matches to choose from, and asked to confirm your selection. At the end, the script prints a summary of all selected entries with their IDs. API calls made during the search are tracked against your daily limit.
+You will be prompted to enter a name and sport, shown a list of matches to choose from, and asked to confirm your selection. At the end, the script prints a summary of all selected entries with their IDs. API calls made during the search are tracked against your daily limit. Like the main script, it reads `RAPIDAPI_KEY` from `.env`.
 
 ### Running the script with a predefined query file
 
@@ -160,7 +160,7 @@ You will be prompted to enter team/player names, select from results, and provid
 uv run pytest -v
 ```
 
-The tests need no secrets: `conftest.py` sets a fake `RAPIDAPI_KEY`, and every API and Calendar call is mocked.
+The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service), so tests hand it the small fakes in `tests/fakes.py` instead of patching. `main()` is the only place that builds the real ones.
 
 ### Continuous integration
 

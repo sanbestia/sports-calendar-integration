@@ -2,8 +2,11 @@ import datetime
 import pytest
 import json
 import requests
-from unittest.mock import patch, MagicMock
-from functions.get_next_matches import get_next_matches, _build_api_url
+from unittest.mock import MagicMock
+from tests.fakes import FakeSession, make_client
+
+INVALID_JSON = "<html>Internal Server Error</html>"
+from functions.get_next_matches import get_next_matches, _build_api_path
 
 # Fake event matching the real API structure
 FAKE_EVENT = {
@@ -37,33 +40,12 @@ FAKE_NEXT_RESPONSE_PAGE_2 = {
 }
 
 
-def make_mock_response(data: dict) -> MagicMock:
-    """Helper to create a fake requests.Response object."""
-    mock = MagicMock()
-    mock.text = json.dumps(data)
-    return mock
-
-
-def make_mock_empty_response() -> MagicMock:
-    """Helper to create a fake empty requests.Response object."""
-    mock = MagicMock()
-    mock.text = ""
-    return mock
-
-
-def make_mock_invalid_json_response() -> MagicMock:
-    mock = MagicMock()
-    mock.text = "<html>Internal Server Error</html>"
-    return mock
-
-
 # --- Tests ---
 
 def test_returns_list_of_matches():
     """'next' endpoint returns one page of results."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert len(result) == 1
     assert result[0].side_one == "Carlos Alcaraz"
@@ -75,25 +57,23 @@ def test_returns_list_of_matches():
 
 def test_paginates_correctly():
     """'next' endpoint paginates and collects events from all pages."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [
-            make_mock_response(FAKE_NEXT_RESPONSE_PAGE_1),
-            make_mock_response(FAKE_NEXT_RESPONSE_PAGE_2)
-        ]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(
+        FAKE_NEXT_RESPONSE_PAGE_1,
+        FAKE_NEXT_RESPONSE_PAGE_2
+    )
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert len(result) == 2
-    assert mock_get.call_count == 2
+    assert len(session.requests) == 2
 
 
 def test_falls_back_to_near_endpoint():
     """Falls back to 'near' endpoint when 'next' returns empty."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [
-            make_mock_empty_response(),
-            make_mock_response(FAKE_NEAR_RESPONSE)
-        ]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(
+        "",
+        FAKE_NEAR_RESPONSE
+    )
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert len(result) == 1
     assert result[0].game_id == "1"
@@ -101,27 +81,24 @@ def test_falls_back_to_near_endpoint():
 
 def test_returns_empty_list_on_connection_error():
     """Returns empty list gracefully when a network error occurs."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.ConnectionError
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(requests.exceptions.ConnectionError)
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
 
 def test_returns_empty_list_on_timeout():
     """Returns empty list gracefully when a timeout occurs."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.Timeout
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(requests.exceptions.Timeout)
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
 
 def test_match_sport_is_set_correctly():
     """Match objects are created with the correct sport."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result[0].sport == "tennis"
 
@@ -129,12 +106,11 @@ def test_match_sport_is_set_correctly():
 def test_round_info_without_name_uses_round_number():
     """When roundInfo has no 'name', it falls back to 'Round X' format."""
     event_no_round_name = {**FAKE_EVENT, "roundInfo": {"round": 5}}
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response({
-            "events": [event_no_round_name],
-            "hasNextPage": False
-        })
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession({
+        "events": [event_no_round_name],
+        "hasNextPage": False
+    })
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result[0].stage == "Round 5"
 
@@ -142,48 +118,44 @@ def test_round_info_without_name_uses_round_number():
 def test_no_round_info_uses_tournament_name():
     """When roundInfo is absent, stage falls back to tournament name."""
     event_no_round = {**FAKE_EVENT, "roundInfo": None}
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response({
-            "events": [event_no_round],
-            "hasNextPage": False
-        })
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession({
+        "events": [event_no_round],
+        "hasNextPage": False
+    })
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result[0].stage == "ATP Ultra Finals, Mars"
 
 
 def test_returns_empty_list_on_empty_near_response():
     """Returns empty list when 'near' endpoint returns an empty response."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [
-            make_mock_empty_response(),
-            make_mock_empty_response()
-        ]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(
+        "",
+        ""
+    )
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
 
 def test_returns_empty_list_on_invalid_json_in_pagination():
     """Returns empty list when a paginated response contains invalid JSON."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [
-            make_mock_response(FAKE_NEXT_RESPONSE_PAGE_1),
-            make_mock_invalid_json_response()
-        ]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(
+        FAKE_NEXT_RESPONSE_PAGE_1,
+        INVALID_JSON
+    )
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
 
 def test_returns_empty_list_on_invalid_json_from_near_endpoint():
     """Returns empty list when 'near' endpoint returns invalid JSON."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [
-            make_mock_empty_response(),
-            make_mock_invalid_json_response()
-        ]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(
+        "",
+        INVALID_JSON
+    )
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
@@ -191,9 +163,8 @@ def test_returns_empty_list_on_invalid_json_from_near_endpoint():
 def test_increments_tracker_on_successful_request():
     """Increments the tracker on each successful API call."""
     mock_tracker = MagicMock()
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
-        get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", mock_tracker)
+    session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
+    get_next_matches(make_client(session, mock_tracker), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     mock_tracker.increment.assert_called_once()
 
@@ -201,18 +172,16 @@ def test_increments_tracker_on_successful_request():
 def test_does_not_increment_tracker_on_connection_error():
     """Does not increment tracker when a network error occurs."""
     mock_tracker = MagicMock()
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.ConnectionError
-        get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", mock_tracker)
+    session = FakeSession(requests.exceptions.ConnectionError)
+    get_next_matches(make_client(session, mock_tracker), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     mock_tracker.increment.assert_not_called()
 
 
 def test_returns_empty_list_on_invalid_response_structure():
     """Returns empty list when API response has valid JSON but unexpected structure."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response({"unexpected_key": "unexpected_value"})
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession({"unexpected_key": "unexpected_value"})
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
@@ -220,67 +189,51 @@ def test_returns_empty_list_on_invalid_response_structure():
 def test_skips_cancelled_matches():
     """Does not create Match objects for events with status type 'canceled'."""
     cancelled_event = {**FAKE_EVENT, "status": {"type": "canceled"}}
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response({"events": [cancelled_event], "hasNextPage": False})
-        result = get_next_matches("4819", "Argentina", "team", "football", "UTC", MagicMock())
+    session = FakeSession({"events": [cancelled_event], "hasNextPage": False})
+    result = get_next_matches(make_client(session), "4819", "Argentina", "team", "football", "UTC")
 
     assert result == []
 
 
 def test_includes_notstarted_matches():
     """Includes events with status type 'notstarted'."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert len(result) == 1
 
 
 def test_near_endpoint_returns_empty_list_on_invalid_structure(caplog):
     """Returns empty list and logs an error when the 'near' event fails validation."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [
-            make_mock_empty_response(),
-            make_mock_response({"nextEvent": {"id": 1}})  # event without its required fields
-        ]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(
+        "",
+        {"nextEvent": {"id": 1}}  # event without its required fields
+    )
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
-    assert "Unexpected response structure from 'near' endpoint" in caplog.text
-
-def test_raises_when_api_key_missing(monkeypatch):
-    """Fails fast, with no request, when RAPIDAPI_KEY is not set."""
-    monkeypatch.delenv("RAPIDAPI_KEY")
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        with pytest.raises(ValueError, match="RAPIDAPI_KEY"):
-            get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
-
-    mock_get.assert_not_called()
-
+    assert "Unexpected response structure from tennis/player/206570/events/near" in caplog.text
 
 def test_returns_empty_list_on_empty_later_page():
     """An empty body after page 0 is an error, so the partial result is dropped."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [make_mock_response(FAKE_NEXT_RESPONSE_PAGE_1), make_mock_empty_response()]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession(FAKE_NEXT_RESPONSE_PAGE_1, "")
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
 
 def test_returns_empty_list_on_near_connection_error():
     """A connection error on the 'near' fallback returns an empty list."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [make_mock_empty_response(), requests.exceptions.ConnectionError()]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession("", requests.exceptions.ConnectionError())
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert result == []
 
 
 def test_near_endpoint_accepts_a_list_of_events():
     """The 'near' fallback also works when nextEvent is a list."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [make_mock_empty_response(), make_mock_response({"nextEvent": [FAKE_EVENT, {**FAKE_EVENT, "id": 2}]})]
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+    session = FakeSession("", {"nextEvent": [FAKE_EVENT, {**FAKE_EVENT, "id": 2}]})
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert [m.game_id for m in result] == ["1", "2"]
 
@@ -288,11 +241,10 @@ def test_near_endpoint_accepts_a_list_of_events():
 def test_counts_one_api_call_per_request():
     """Each page and the 'near' fallback count as one API call each."""
     paged_tracker, fallback_tracker = MagicMock(), MagicMock()
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [make_mock_response(FAKE_NEXT_RESPONSE_PAGE_1), make_mock_response(FAKE_NEXT_RESPONSE_PAGE_2)]
-        get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", paged_tracker)
-        mock_get.side_effect = [make_mock_empty_response(), make_mock_response(FAKE_NEAR_RESPONSE)]
-        get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", fallback_tracker)
+    session = FakeSession(FAKE_NEXT_RESPONSE_PAGE_1, FAKE_NEXT_RESPONSE_PAGE_2)
+    get_next_matches(make_client(session, paged_tracker), "206570", "Jannik Sinner", "player", "tennis", "UTC")
+    session = FakeSession("", FAKE_NEAR_RESPONSE)
+    get_next_matches(make_client(session, fallback_tracker), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert paged_tracker.increment.call_count == 2
     assert fallback_tracker.increment.call_count == 2
@@ -300,9 +252,8 @@ def test_counts_one_api_call_per_request():
 
 def test_converts_start_time_to_given_time_zone():
     """The match start is the API timestamp, expressed in the requested time zone."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.return_value = make_mock_response(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
-        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "America/Argentina/Buenos_Aires", MagicMock())
+    session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "America/Argentina/Buenos_Aires")
 
     start = result[0].start_time
     assert start.timestamp() == FAKE_EVENT["startTimestamp"]
@@ -314,17 +265,16 @@ def test_converts_start_time_to_given_time_zone():
     ("tennis", "player", "206570", "next", 2, "tennis/player/206570/events/next/2"),  # tennis uses 'events'
     ("basketball", "team", "3427", "near", None, "basketball/team/3427/matches/near"),
 ])
-def test_build_api_url(sport, player_type, team_id, endpoint, page, expected_path):
-    """URLs follow the AllSports path rules for sport prefix, event type and page."""
-    assert _build_api_url(sport, player_type, team_id, endpoint, page) == f"https://allsportsapi2.p.rapidapi.com/api/{expected_path}"
+def test_build_api_path(sport, player_type, team_id, endpoint, page, expected_path):
+    """Paths follow the AllSports rules for sport prefix, event type and page."""
+    assert _build_api_path(sport, player_type, team_id, endpoint, page) == expected_path
 
 
 @pytest.mark.parametrize("near_body", [{}, {"nextEvent": None}, {"previousEvent": FAKE_EVENT}])
 def test_returns_empty_list_when_near_has_no_next_event(near_body, caplog):
     """The usual off-season case: 'next' is empty and 'near' has no next event."""
-    with patch("functions.get_next_matches.requests.get") as mock_get:
-        mock_get.side_effect = [make_mock_empty_response(), make_mock_response(near_body)]
-        result = get_next_matches("3452", "Indiana Fever", "team", "basketball", "UTC", MagicMock())
+    session = FakeSession("", near_body)
+    result = get_next_matches(make_client(session), "3452", "Indiana Fever", "team", "basketball", "UTC")
 
     assert result == []
     assert "No upcoming games found using any endpoints" in caplog.text
