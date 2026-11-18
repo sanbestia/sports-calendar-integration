@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timezone, timedelta
 
 import pandas as pd
@@ -30,7 +31,7 @@ from functions.db_stats import (
 def api_db(tmp_path):
     """Temporary api_calls.db seeded with known data."""
     db_path = str(tmp_path / "api_calls.db")
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("CREATE TABLE api_calls (date TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)")
         conn.executemany("INSERT INTO api_calls VALUES (?, ?)", [
             ("2026-01-01", 40),
@@ -45,7 +46,7 @@ def api_db(tmp_path):
 def api_db_with_today(tmp_path):
     """Temporary api_calls.db with an entry for today."""
     db_path = str(tmp_path / "api_calls.db")
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("CREATE TABLE api_calls (date TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)")
         conn.execute("INSERT INTO api_calls VALUES (?, ?)", (str(date.today()), 73))
     return db_path
@@ -55,7 +56,7 @@ def api_db_with_today(tmp_path):
 def empty_api_db(tmp_path):
     """Temporary api_calls.db with no rows."""
     db_path = str(tmp_path / "api_calls.db")
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("CREATE TABLE api_calls (date TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)")
     return db_path
 
@@ -65,7 +66,7 @@ def fetch_db(tmp_path):
     """Temporary fetch_log.db seeded with known data."""
     db_path = str(tmp_path / "fetch_log.db")
     now = datetime.now(timezone.utc)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("""
             CREATE TABLE fetch_log (
                 team_name TEXT PRIMARY KEY,
@@ -95,7 +96,7 @@ def fetch_db(tmp_path):
 def empty_fetch_db(tmp_path):
     """Temporary fetch_log.db with no rows."""
     db_path = str(tmp_path / "fetch_log.db")
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("""
             CREATE TABLE fetch_log (
                 team_name TEXT PRIMARY KEY,
@@ -435,7 +436,7 @@ def fetch_db_due(tmp_path):
     """Fetch log with one team due (fetched 200h ago) and one not due (fetched 1h ago)."""
     db_path = str(tmp_path / "fetch_log.db")
     now = datetime.now(timezone.utc)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("""
             CREATE TABLE fetch_log (
                 team_name TEXT PRIMARY KEY,
@@ -480,7 +481,7 @@ def test_teams_with_no_upcoming_match_excludes_teams_with_match(fetch_db):
 def test_teams_with_no_upcoming_match_returns_empty_when_all_have_matches(tmp_path):
     db_path = str(tmp_path / "fetch_log.db")
     now = datetime.now(timezone.utc)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("""
             CREATE TABLE fetch_log (
                 team_name TEXT PRIMARY KEY,
@@ -528,3 +529,49 @@ def test_stale_teams_returns_empty_on_empty_db(empty_fetch_db):
     df = stale_teams(hours=0, db_path=empty_fetch_db)
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 0
+
+
+# ============================================================
+# Command line (main)
+# ============================================================
+
+def run_cli(monkeypatch, *argv: str) -> int:
+    """Run db_stats.main() with the given arguments and return its exit code (0 when it does not exit)."""
+    from functions import db_stats
+    monkeypatch.setattr("sys.argv", ["db_stats.py", *argv])
+    try:
+        db_stats.main()
+    except SystemExit as e:
+        return e.code
+    return 0
+
+
+def test_cli_without_function_lists_public_functions(monkeypatch, caplog):
+    """With no function name, it lists the public functions and exits 0."""
+    assert run_cli(monkeypatch) == 0
+    assert "calls_today" in caplog.text
+    assert "_connect" not in caplog.text
+
+
+def test_cli_runs_function_with_typed_params(monkeypatch, caplog, api_db):
+    """Converts the date parameter and passes the db path through, then prints the result."""
+    assert run_cli(monkeypatch, "calls_on", "2026-01-03", api_db) == 0
+    assert "60" in caplog.text
+
+
+def test_cli_rejects_unknown_function(monkeypatch, caplog):
+    """An unknown function name exits 1 with an error."""
+    assert run_cli(monkeypatch, "no_such_function") == 1
+    assert "Unknown function" in caplog.text
+
+
+def test_cli_rejects_missing_required_param(monkeypatch, caplog):
+    """A missing required parameter exits 1 and names it."""
+    assert run_cli(monkeypatch, "calls_on") == 1
+    assert "Missing: day" in caplog.text
+
+
+def test_cli_rejects_badly_typed_param(monkeypatch, caplog):
+    """A value that does not convert to the declared type exits 1."""
+    assert run_cli(monkeypatch, "calls_on", "not-a-date") == 1
+    assert "Bad value for 'day'" in caplog.text

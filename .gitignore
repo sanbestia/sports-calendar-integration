@@ -17,6 +17,7 @@ token.json
 # Generated files
 api_calls.db
 fetch_log.db
+.coverage
 
 # Personal queries
 queries.json

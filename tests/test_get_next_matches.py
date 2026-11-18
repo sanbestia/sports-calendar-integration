@@ -3,7 +3,7 @@ import pytest
 import json
 import requests
 from unittest.mock import patch, MagicMock
-from functions.get_next_matches import get_next_matches
+from functions.get_next_matches import get_next_matches, _build_api_url
 
 # Fake event matching the real API structure
 FAKE_EVENT = {
@@ -164,7 +164,7 @@ def test_returns_empty_list_on_empty_near_response():
     assert result == []
 
 
-def test_returns_partial_results_on_invalid_json_in_pagination():
+def test_returns_empty_list_on_invalid_json_in_pagination():
     """Returns empty list when a paginated response contains invalid JSON."""
     with patch("functions.get_next_matches.requests.get") as mock_get:
         mock_get.side_effect = [
@@ -236,13 +236,95 @@ def test_includes_notstarted_matches():
     assert len(result) == 1
 
 
-def test_near_endpoint_returns_empty_list_on_invalid_structure():
-    """Returns empty list when 'near' response has valid JSON but wrong structure."""
+def test_near_endpoint_returns_empty_list_on_invalid_structure(caplog):
+    """Returns empty list and logs an error when the 'near' event fails validation."""
     with patch("functions.get_next_matches.requests.get") as mock_get:
         mock_get.side_effect = [
             make_mock_empty_response(),
-            make_mock_response({"unexpected_key": "unexpected_value"})
+            make_mock_response({"nextEvent": {"id": 1}})  # event without its required fields
         ]
         result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
 
     assert result == []
+    assert "Unexpected response structure from 'near' endpoint" in caplog.text
+
+def test_raises_when_api_key_missing(monkeypatch):
+    """Fails fast, with no request, when RAPIDAPI_KEY is not set."""
+    monkeypatch.delenv("RAPIDAPI_KEY")
+    with patch("functions.get_next_matches.requests.get") as mock_get:
+        with pytest.raises(ValueError, match="RAPIDAPI_KEY"):
+            get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+
+    mock_get.assert_not_called()
+
+
+def test_returns_empty_list_on_empty_later_page():
+    """An empty body after page 0 is an error, so the partial result is dropped."""
+    with patch("functions.get_next_matches.requests.get") as mock_get:
+        mock_get.side_effect = [make_mock_response(FAKE_NEXT_RESPONSE_PAGE_1), make_mock_empty_response()]
+        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+
+    assert result == []
+
+
+def test_returns_empty_list_on_near_connection_error():
+    """A connection error on the 'near' fallback returns an empty list."""
+    with patch("functions.get_next_matches.requests.get") as mock_get:
+        mock_get.side_effect = [make_mock_empty_response(), requests.exceptions.ConnectionError()]
+        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+
+    assert result == []
+
+
+def test_near_endpoint_accepts_a_list_of_events():
+    """The 'near' fallback also works when nextEvent is a list."""
+    with patch("functions.get_next_matches.requests.get") as mock_get:
+        mock_get.side_effect = [make_mock_empty_response(), make_mock_response({"nextEvent": [FAKE_EVENT, {**FAKE_EVENT, "id": 2}]})]
+        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", MagicMock())
+
+    assert [m.game_id for m in result] == ["1", "2"]
+
+
+def test_counts_one_api_call_per_request():
+    """Each page and the 'near' fallback count as one API call each."""
+    paged_tracker, fallback_tracker = MagicMock(), MagicMock()
+    with patch("functions.get_next_matches.requests.get") as mock_get:
+        mock_get.side_effect = [make_mock_response(FAKE_NEXT_RESPONSE_PAGE_1), make_mock_response(FAKE_NEXT_RESPONSE_PAGE_2)]
+        get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", paged_tracker)
+        mock_get.side_effect = [make_mock_empty_response(), make_mock_response(FAKE_NEAR_RESPONSE)]
+        get_next_matches("206570", "Jannik Sinner", "player", "tennis", "UTC", fallback_tracker)
+
+    assert paged_tracker.increment.call_count == 2
+    assert fallback_tracker.increment.call_count == 2
+
+
+def test_converts_start_time_to_given_time_zone():
+    """The match start is the API timestamp, expressed in the requested time zone."""
+    with patch("functions.get_next_matches.requests.get") as mock_get:
+        mock_get.return_value = make_mock_response(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
+        result = get_next_matches("206570", "Jannik Sinner", "player", "tennis", "America/Argentina/Buenos_Aires", MagicMock())
+
+    start = result[0].start_time
+    assert start.timestamp() == FAKE_EVENT["startTimestamp"]
+    assert start.utcoffset() == datetime.timedelta(hours=-3)
+
+
+@pytest.mark.parametrize("sport, player_type, team_id, endpoint, page, expected_path", [
+    ("football", "team", "4819", "next", 0, "team/4819/matches/next/0"),          # football has no sport prefix
+    ("tennis", "player", "206570", "next", 2, "tennis/player/206570/events/next/2"),  # tennis uses 'events'
+    ("basketball", "team", "3427", "near", None, "basketball/team/3427/matches/near"),
+])
+def test_build_api_url(sport, player_type, team_id, endpoint, page, expected_path):
+    """URLs follow the AllSports path rules for sport prefix, event type and page."""
+    assert _build_api_url(sport, player_type, team_id, endpoint, page) == f"https://allsportsapi2.p.rapidapi.com/api/{expected_path}"
+
+
+@pytest.mark.parametrize("near_body", [{}, {"nextEvent": None}, {"previousEvent": FAKE_EVENT}])
+def test_returns_empty_list_when_near_has_no_next_event(near_body, caplog):
+    """The usual off-season case: 'next' is empty and 'near' has no next event."""
+    with patch("functions.get_next_matches.requests.get") as mock_get:
+        mock_get.side_effect = [make_mock_empty_response(), make_mock_response(near_body)]
+        result = get_next_matches("3452", "Indiana Fever", "team", "basketball", "UTC", MagicMock())
+
+    assert result == []
+    assert "No upcoming games found using any endpoints" in caplog.text

@@ -6,9 +6,22 @@ from config import FETCH_THRESHOLDS
 
 # --- Helpers ---
 
-def make_tracker() -> FetchTracker:
-    """Create a tracker backed by an in-memory SQLite database."""
-    return FetchTracker(db_path=":memory:")
+_created_trackers: list[FetchTracker] = []
+
+
+def make_tracker(db_path: str = ":memory:") -> FetchTracker:
+    """Create a tracker (in-memory SQLite by default); it is closed after the test."""
+    tracker = FetchTracker(db_path=db_path)
+    _created_trackers.append(tracker)
+    return tracker
+
+
+@pytest.fixture(autouse=True)
+def _close_trackers():
+    """Close every tracker created during a test so no SQLite connection is left open."""
+    yield
+    while _created_trackers:
+        _created_trackers.pop().close()
 
 
 def seed_entry(tracker: FetchTracker, team_name: str, hours_ago: float, days_until_match: float | None, match_count: int = 0) -> None:
@@ -291,3 +304,50 @@ def test_imminent_close_uses_config_values():
     assert "imminent_close" in FETCH_THRESHOLDS
     assert "hours" in FETCH_THRESHOLDS["imminent_close"]
     assert "recheck_hours" in FETCH_THRESHOLDS["imminent_close"]
+
+# --- hours_until_next_fetch tests ---
+
+def test_hours_until_next_fetch_is_zero_when_no_entry():
+    """A team that was never fetched is due now."""
+    tracker = make_tracker()
+    assert tracker.hours_until_next_fetch("Carlos Alcaraz") == 0.0
+
+
+def test_hours_until_next_fetch_returns_time_left_in_interval():
+    """Returns the recheck interval minus the time since the last fetch."""
+    tracker = make_tracker()
+    seed_entry(tracker, "Carlos Alcaraz", hours_ago=10, days_until_match=10)  # far match
+    expected = FETCH_THRESHOLDS["far"]["recheck_hours"] - 10
+
+    assert tracker.hours_until_next_fetch("Carlos Alcaraz") == pytest.approx(expected, abs=0.01)
+
+
+def test_hours_until_next_fetch_is_zero_when_overdue():
+    """Never returns a negative value for an overdue team."""
+    tracker = make_tracker()
+    seed_entry(tracker, "Carlos Alcaraz", hours_ago=FETCH_THRESHOLDS["unknown"]["recheck_hours"] + 5, days_until_match=None)
+
+    assert tracker.hours_until_next_fetch("Carlos Alcaraz") == 0.0
+
+
+def test_hours_until_next_fetch_agrees_with_should_fetch():
+    """A team with time left is not due; a team with no time left is due."""
+    tracker = make_tracker()
+    seed_entry(tracker, "Fresh", hours_ago=1, days_until_match=10)
+    seed_entry(tracker, "Stale", hours_ago=100, days_until_match=10)
+
+    assert tracker.hours_until_next_fetch("Fresh") > 0 and tracker.should_fetch("Fresh") is False
+    assert tracker.hours_until_next_fetch("Stale") == 0.0 and tracker.should_fetch("Stale") is True
+
+
+# --- file-based persistence ---
+
+def test_fetch_log_survives_restart(tmp_path):
+    """A new tracker on the same file sees the earlier fetch (the service restart case)."""
+    db_path = str(tmp_path / "fetch_log.db")
+    next_match = datetime.now(timezone.utc) + timedelta(days=10)
+    make_tracker(db_path).record_fetch("Carlos Alcaraz", next_match, 1)
+
+    restarted = make_tracker(db_path)
+
+    assert restarted.should_fetch("Carlos Alcaraz") is False
