@@ -1,4 +1,6 @@
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 import logging
 from datetime import datetime, timezone
 
@@ -18,11 +20,25 @@ class FetchTracker:
         self._conn = sqlite3.connect(db_path, check_same_thread=False) if db_path == ":memory:" else None
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        """Return the persistent in-memory connection, or open a new file-based connection."""
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Yield a connection that commits on success and rolls back on error.
+
+        File-based connections are closed afterwards; the persistent :memory: connection is kept open.
+        """
+        conn = self._conn if self._conn is not None else sqlite3.connect(self._db_path)
+        try:
+            with conn:  # sqlite3's own context manager only commits/rolls back; it does not close
+                yield conn
+        finally:
+            if conn is not self._conn:
+                conn.close()
+
+    def close(self) -> None:
+        """Close the persistent :memory: connection, if any."""
         if self._conn is not None:
-            return self._conn
-        return sqlite3.connect(self._db_path)
+            self._conn.close()
+            self._conn = None
 
     def _init_db(self) -> None:
         """Create the table if it doesn't exist yet."""

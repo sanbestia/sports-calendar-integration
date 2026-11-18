@@ -9,6 +9,8 @@ if __name__ == "__main__":
 import inspect
 import logging
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 
 import pandas as pd
@@ -18,9 +20,14 @@ from objects.APICallTracker import DB_FILE as API_CALLS_DB
 from objects.FetchTracker import DB_FILE as FETCH_LOG_DB
 
 
-def _connect(db_path: str) -> sqlite3.Connection:
-    """Open a read-only connection to the given SQLite database file."""
-    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)  # read-only URI prevents analytics code from accidentally writing
+@contextmanager
+def _connect(db_path: str) -> Iterator[sqlite3.Connection]:
+    """Yield a read-only connection to the given SQLite database file and close it afterwards."""
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)  # read-only URI prevents analytics code from accidentally writing
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _fmt_datetime(dt) -> str:
