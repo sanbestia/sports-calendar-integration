@@ -1,118 +1,96 @@
 import pytest
-import os
-from unittest.mock import patch, MagicMock, mock_open
+from pathlib import Path
+from unittest.mock import MagicMock
 from google.auth.exceptions import RefreshError
 from functions.check_calendar_tokens import check_calendar_tokens
+from tests.fakes import FakeAuth
 
 
-def make_valid_creds() -> MagicMock:
+def make_creds(valid: bool, token_json: str = '{"token": "x"}') -> MagicMock:
+    """Credentials as the auth library returns them: valid ones, or expired ones with a refresh token."""
     creds = MagicMock()
-    creds.valid = True
-    creds.expired = False
-    creds.refresh_token = None
+    creds.valid = valid
+    creds.expired = not valid
+    creds.refresh_token = None if valid else "some_refresh_token"
+    creds.to_json.return_value = token_json
     return creds
 
 
-def make_expired_creds() -> MagicMock:
-    creds = MagicMock()
-    creds.valid = False
-    creds.expired = True
-    creds.refresh_token = "some_refresh_token"
-    return creds
+@pytest.fixture
+def paths(tmp_path):
+    """Token and client-secret paths in a temporary folder (the token file does not exist yet)."""
+    return {"token_path": str(tmp_path / "token.json"), "credentials_path": str(tmp_path / "credentials.json")}
 
 
-# --- Tests ---
+def test_returns_valid_creds_when_token_exists(paths):
+    """Valid stored credentials are returned as they are, with no refresh, flow or file write."""
+    Path(paths["token_path"]).write_text("stored")
+    creds = make_creds(valid=True)
+    auth = FakeAuth(stored=creds)
 
-def test_returns_valid_creds_when_token_exists():
-    """Returns credentials directly when token file exists and is valid."""
-    mock_creds = make_valid_creds()
+    result = check_calendar_tokens(**paths, auth=auth)
 
-    with patch("functions.check_calendar_tokens.os.path.exists", return_value=True), \
-         patch("functions.check_calendar_tokens.Credentials.from_authorized_user_file", return_value=mock_creds):
-
-        result = check_calendar_tokens()
-
-    assert result == mock_creds
-
-
-def test_refreshes_creds_when_expired():
-    """Refreshes credentials when token exists but is expired."""
-    mock_creds = make_expired_creds()
-
-    with patch("functions.check_calendar_tokens.os.path.exists", return_value=True), \
-         patch("functions.check_calendar_tokens.Credentials.from_authorized_user_file", return_value=mock_creds), \
-         patch("functions.check_calendar_tokens.Request"), \
-         patch("builtins.open", mock_open()):
-
-        result = check_calendar_tokens()
-
-    mock_creds.refresh.assert_called_once()
+    assert result is creds
+    assert auth.loaded == [paths["token_path"]]
+    assert auth.refreshed == [] and auth.flows == []
+    assert Path(paths["token_path"]).read_text() == "stored"
 
 
-def test_deletes_token_and_runs_flow_when_refresh_fails():
-    """Deletes token file and runs auth flow when refresh raises an exception."""
-    mock_creds = make_expired_creds()
-    mock_creds.refresh.side_effect = RefreshError("Refresh failed")
-    mock_flow_creds = make_valid_creds()
+def test_refreshes_expired_creds_and_saves_them(paths):
+    """Expired credentials with a refresh token are refreshed and written back to the token file."""
+    Path(paths["token_path"]).write_text("stored")
+    creds = make_creds(valid=False, token_json='{"token": "refreshed"}')
+    auth = FakeAuth(stored=creds)
 
-    mock_flow = MagicMock()
-    mock_flow.run_local_server.return_value = mock_flow_creds
+    result = check_calendar_tokens(**paths, auth=auth)
 
-    with patch("functions.check_calendar_tokens.os.path.exists", return_value=True), \
-         patch("functions.check_calendar_tokens.Credentials.from_authorized_user_file", return_value=mock_creds), \
-         patch("functions.check_calendar_tokens.Request"), \
-         patch("functions.check_calendar_tokens.os.remove") as mock_remove, \
-         patch("functions.check_calendar_tokens.InstalledAppFlow.from_client_secrets_file", return_value=mock_flow), \
-         patch("builtins.open", mock_open()):
-
-        result = check_calendar_tokens()
-
-    mock_remove.assert_called_once_with("token.json")
-    mock_flow.run_local_server.assert_called_once()
-    assert result == mock_flow_creds
+    assert result is creds
+    assert auth.refreshed == [creds]
+    assert auth.flows == []
+    assert Path(paths["token_path"]).read_text() == '{"token": "refreshed"}'
 
 
-def test_runs_auth_flow_when_no_token_file():
-    """Runs auth flow when no token file exists."""
-    mock_flow_creds = make_valid_creds()
+def test_deletes_token_and_runs_flow_when_refresh_fails(paths):
+    """When Google refuses the refresh, the old token is dropped and the consent flow runs."""
+    Path(paths["token_path"]).write_text("stored")
+    new_creds = make_creds(valid=True, token_json='{"token": "from flow"}')
+    auth = FakeAuth(stored=make_creds(valid=False), refresh_error=RefreshError("Refresh failed"), flow_creds=new_creds)
 
-    mock_flow = MagicMock()
-    mock_flow.run_local_server.return_value = mock_flow_creds
+    result = check_calendar_tokens(**paths, auth=auth)
 
-    with patch("functions.check_calendar_tokens.os.path.exists", return_value=False), \
-         patch("functions.check_calendar_tokens.InstalledAppFlow.from_client_secrets_file", return_value=mock_flow), \
-         patch("builtins.open", mock_open()):
-
-        result = check_calendar_tokens()
-
-    mock_flow.run_local_server.assert_called_once()
-    assert result == mock_flow_creds
+    assert result is new_creds
+    assert auth.flows == [paths["credentials_path"]]
+    assert Path(paths["token_path"]).read_text() == '{"token": "from flow"}'
 
 
-def test_saves_token_file_after_auth_flow():
-    """Writes credentials to token.json after a successful auth flow."""
-    mock_flow_creds = make_valid_creds()
-    mock_flow_creds.to_json.return_value = '{"token": "abc"}'
+def test_runs_auth_flow_when_no_token_file(paths):
+    """With no token file, the stored credentials are not read and the consent flow runs."""
+    new_creds = make_creds(valid=True)
+    auth = FakeAuth(flow_creds=new_creds)
 
-    mock_flow = MagicMock()
-    mock_flow.run_local_server.return_value = mock_flow_creds
+    result = check_calendar_tokens(**paths, auth=auth)
 
-    with patch("functions.check_calendar_tokens.os.path.exists", return_value=False), \
-         patch("functions.check_calendar_tokens.InstalledAppFlow.from_client_secrets_file", return_value=mock_flow), \
-         patch("builtins.open", mock_open()) as mock_file:
-
-        check_calendar_tokens()
-
-    mock_file.assert_called_once_with("token.json", "w")
+    assert result is new_creds
+    assert auth.loaded == []
+    assert auth.flows == [paths["credentials_path"]]
 
 
-def test_non_refresh_error_propagates():
-    """Non-RefreshError exceptions from token refresh are not caught."""
-    mock_creds = make_expired_creds()
-    mock_creds.refresh.side_effect = OSError("Network error")
+def test_saves_token_file_after_auth_flow(paths):
+    """The credentials from the flow are saved, so the next start does not need the browser."""
+    auth = FakeAuth(flow_creds=make_creds(valid=True, token_json='{"token": "new"}'))
 
-    with patch("functions.check_calendar_tokens.os.path.exists", return_value=True), \
-         patch("functions.check_calendar_tokens.Credentials.from_authorized_user_file", return_value=mock_creds), \
-         patch("functions.check_calendar_tokens.Request"):
-        with pytest.raises(OSError):
-            check_calendar_tokens()
+    check_calendar_tokens(**paths, auth=auth)
+
+    assert Path(paths["token_path"]).read_text() == '{"token": "new"}'
+
+
+def test_non_refresh_error_propagates(paths):
+    """An error that is not a RefreshError (e.g. no network) is raised and the token file is kept."""
+    Path(paths["token_path"]).write_text("stored")
+    auth = FakeAuth(stored=make_creds(valid=False), refresh_error=OSError("Network error"))
+
+    with pytest.raises(OSError, match="Network error"):
+        check_calendar_tokens(**paths, auth=auth)
+
+    assert Path(paths["token_path"]).read_text() == "stored"
+    assert auth.flows == []

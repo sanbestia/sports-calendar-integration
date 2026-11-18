@@ -160,7 +160,7 @@ You will be prompted to enter team/player names, select from results, and provid
 uv run pytest -v
 ```
 
-The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service), so tests hand it the small fakes in `tests/fakes.py` instead of patching. `main()` is the only place that builds the real ones.
+The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. `main()` is the only place that builds the real ones.
 
 ### Continuous integration
 

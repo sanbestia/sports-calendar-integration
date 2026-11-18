@@ -77,3 +77,28 @@ class FakeSession:
 def make_client(session: FakeSession, tracker=None) -> AllSportsClient:
     """An AllSportsClient with a fake key, the given fake session, and a mock call tracker by default."""
     return AllSportsClient(api_key="test-key", tracker=tracker if tracker is not None else MagicMock(), session=session)
+
+
+class FakeAuth:
+    """Stands in for GoogleAuth: returns the given credentials and records each call."""
+
+    def __init__(self, stored=None, refresh_error: Exception | None = None, flow_creds=None):
+        self.stored = stored
+        self.refresh_error = refresh_error
+        self.flow_creds = flow_creds
+        self.loaded: list[str] = []
+        self.refreshed: list = []
+        self.flows: list[str] = []
+
+    def load(self, token_path: str):
+        self.loaded.append(token_path)
+        return self.stored
+
+    def refresh(self, creds) -> None:
+        self.refreshed.append(creds)
+        if self.refresh_error is not None:
+            raise self.refresh_error
+
+    def run_flow(self, credentials_path: str):
+        self.flows.append(credentials_path)
+        return self.flow_creds
