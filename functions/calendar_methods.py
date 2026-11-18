@@ -1,10 +1,10 @@
 import logging
-import time
 import random
 from googleapiclient.discovery import Resource
 from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta
 from objects.Match import Match
+from objects.Clock import Clock
 from functions.utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ _MAX_RETRIES = 4
 _BASE_DELAY = 1.0  # seconds
 
 
-def _execute_with_retry(request) -> dict:
+def _execute_with_retry(request, clock: Clock) -> dict:
     """Execute a Google API request with exponential backoff on transient errors."""
     for attempt in range(_MAX_RETRIES):
         try:
@@ -38,7 +38,7 @@ def _execute_with_retry(request) -> dict:
                 raise
             delay = _BASE_DELAY * (2 ** attempt) + random.uniform(0, 1)
             logger.warning(f"Google API error {e.status_code}, retrying in {delay:.1f}s (attempt {attempt + 1}/{_MAX_RETRIES})")
-            time.sleep(delay)
+            clock.sleep(delay)
 
 
 def _build_summary(game: Match) -> str:
@@ -46,11 +46,11 @@ def _build_summary(game: Match) -> str:
     return f'{ICONS[game.sport]} {game.side_one} vs {game.side_two} - {game.tournament} ({game.stage})'
 
 
-def _build_event_body(game: Match, time_zone: str) -> dict:
-    """Build a Google Calendar event body for a given match."""
+def _build_event_body(game: Match, time_zone: str, updated_at: datetime) -> dict:
+    """Build a Google Calendar event body for a given match; updated_at is shown in the description."""
     return {
         'summary': _build_summary(game),
-        'description': f'Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+        'description': f'Last updated: {updated_at.strftime("%Y-%m-%d %H:%M:%S")}',
         'start': {
             'dateTime': game.start_time.isoformat(),
             'timeZone': time_zone,
@@ -72,17 +72,21 @@ def _build_event_body(game: Match, time_zone: str) -> dict:
     }
 
 
-def update_events(service: Resource, calendar_id: str, game_list: list[Match], time_zone: str, team_id: str) -> int:
+def update_events(service: Resource, calendar_id: str, game_list: list[Match], time_zone: str, team_id: str,
+                  clock: Clock | None = None) -> int:
     """Sync a list of matches to Google Calendar: create new events, update changed ones, and delete orphans."""
+    clock = clock or Clock()
+    now = clock.now()
+    updated_at = now.astimezone()  # local time, for the human-readable description
     logger.info("Updating calendar...")
 
     logger.info("Looking up future events...")
     logger.info("")
-    lookback = datetime.now() - timedelta(hours=12)  # -12h to catch in-progress games
-    time_min = lookback.astimezone().replace(microsecond=0).isoformat()  # microsecond=0 because GCal API rejects sub-second precision
+    lookback = now - timedelta(hours=12)  # -12h to catch in-progress games
+    time_min = lookback.replace(microsecond=0).isoformat()  # microsecond=0 because GCal API rejects sub-second precision
     existing_events = []
 
-    response = _execute_with_retry(service.events().list(calendarId=calendar_id, timeMin=time_min))
+    response = _execute_with_retry(service.events().list(calendarId=calendar_id, timeMin=time_min), clock)
     existing_events.extend(response.get("items", []))
     next_page_token = response.get("nextPageToken")
 
@@ -91,7 +95,7 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
             calendarId=calendar_id,
             timeMin=time_min,
             pageToken=next_page_token
-        ))
+        ), clock)
         existing_events.extend(response.get("items", []))
         next_page_token = response.get("nextPageToken")
 
@@ -123,13 +127,13 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
                 or event.get("summary") != _build_summary(game)
             ):
                 logger.info("Found change in event details. Updating...")
-                event_to_update = _execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event["id"]))  # fetch full event first to preserve fields not in _build_event_body (e.g. attendees)
-                event_to_update.update(_build_event_body(game, time_zone))
+                event_to_update = _execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event["id"]), clock)  # fetch full event first to preserve fields not in _build_event_body (e.g. attendees)
+                event_to_update.update(_build_event_body(game, time_zone, updated_at))
                 updated_event = _execute_with_retry(service.events().update(
                     calendarId=calendar_id,
                     eventId=event['id'],
                     body=event_to_update
-                ))
+                ), clock)
                 logger.info(f'Event updated: {sanitize_for_log(str(updated_event.get("summary", "")))} — {sanitize_for_log(str(updated_event.get("htmlLink", "")))}')
             else:
                 logger.info(f"'{sanitize_for_log(event['summary'])}' already up to date")
@@ -138,8 +142,8 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
             try:
                 created_event = _execute_with_retry(service.events().insert(
                     calendarId=calendar_id,
-                    body=_build_event_body(game, time_zone)
-                ))
+                    body=_build_event_body(game, time_zone, updated_at)
+                ), clock)
                 logger.info(f'Event created: {sanitize_for_log(str(created_event.get("summary", "")))} — {sanitize_for_log(str(created_event.get("htmlLink", "")))}')
                 newly_created += 1
             except HttpError as error:
@@ -161,10 +165,10 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
             if event_start_str:
                 event_start = datetime.fromisoformat(event_start_str).astimezone()
                 # Skip deletion of past/in-progress events
-                if event_start <= datetime.now().astimezone():
+                if event_start <= now:
                     continue
             try:
-                _execute_with_retry(service.events().delete(calendarId=calendar_id, eventId=event["id"]))
+                _execute_with_retry(service.events().delete(calendarId=calendar_id, eventId=event["id"]), clock)
                 logger.info(f"Deleted cancelled/orphaned event: '{sanitize_for_log(event.get('summary', ''))}'")
             except HttpError as error:
                 logger.error(f"Error deleting event '{sanitize_for_log(event.get('summary', ''))}': {error}")

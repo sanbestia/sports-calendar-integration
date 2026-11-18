@@ -2,8 +2,8 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 import logging
-from datetime import date
 from config import MAX_API_CALLS
+from objects.Clock import Clock
 
 logger = logging.getLogger(__name__)
 
@@ -11,10 +11,11 @@ DB_FILE = "api_calls.db"
 
 
 class APICallTracker:
-    def __init__(self, db_path: str = DB_FILE):
+    def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None):
         """Initialise the tracker, creating the database table and loading today's call count."""
         self.daily_limit = MAX_API_CALLS
-        self.current_date = date.today()  # cached locally; compared in _check_reset to detect day rollover
+        self._clock = clock or Clock()
+        self.current_date = self._clock.today()  # cached locally; compared in _check_reset to detect day rollover
         self._db_path = db_path
         # For :memory: databases, keep a single connection alive for the lifetime
         # of the object — each new connection() call would get its own empty database
@@ -63,7 +64,7 @@ class APICallTracker:
 
     def _check_reset(self) -> None:
         """Reset counter if the date has changed since last call."""
-        today = date.today()
+        today = self._clock.today()
         if today != self.current_date:
             logger.info(f"New day detected, resetting API call counter (was {self.count})")
             self.count = 0

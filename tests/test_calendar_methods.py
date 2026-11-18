@@ -4,10 +4,12 @@ from unittest.mock import MagicMock
 from googleapiclient.errors import HttpError
 from objects.Match import Match
 from functions.calendar_methods import update_events, _build_event_body
+from tests.fakes import FakeClock
 
 
 START_TIME = datetime.datetime(2025, 6, 15, 14, 0, 0, tzinfo=datetime.timezone.utc)
 FUTURE_START_TIME = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(days=30)
+UPDATED_AT = datetime.datetime(2026, 1, 15, 9, 30, 0)
 
 
 def make_match(game_id="123", side_one="Team A", side_two="Team B", start_time=FUTURE_START_TIME,
@@ -401,7 +403,7 @@ def test_update_keeps_fields_not_in_event_body():
 
 def test_event_body_summary_has_sport_icon_and_match_details():
     """The summary is '<icon> <side one> vs <side two> - <tournament> (<stage>)'."""
-    body = _build_event_body(make_match(), "UTC")
+    body = _build_event_body(make_match(), "UTC", UPDATED_AT)
 
     assert body["summary"] == "⚽ Team A vs Team B - Some League (Round 1)"
 
@@ -409,7 +411,7 @@ def test_event_body_summary_has_sport_icon_and_match_details():
 def test_event_body_uses_start_and_expected_end_in_given_time_zone():
     """Start and end come from the match, and both carry the given time zone."""
     match = make_match()
-    body = _build_event_body(match, "America/Argentina/Buenos_Aires")
+    body = _build_event_body(match, "America/Argentina/Buenos_Aires", UPDATED_AT)
 
     assert body["start"] == {"dateTime": match.start_time.isoformat(), "timeZone": "America/Argentina/Buenos_Aires"}
     assert body["end"] == {"dateTime": match.expected_end_time.isoformat(), "timeZone": "America/Argentina/Buenos_Aires"}
@@ -418,7 +420,7 @@ def test_event_body_uses_start_and_expected_end_in_given_time_zone():
 def test_event_body_private_properties_match_the_reschedule_check():
     """The private properties hold the values that update_events compares later."""
     match = make_match(game_id=123, home_team_id=10, away_team_id=20)
-    props = _build_event_body(match, "UTC")["extendedProperties"]["private"]
+    props = _build_event_body(match, "UTC", UPDATED_AT)["extendedProperties"]["private"]
 
     assert props == {
         "game_id": "123",
@@ -432,7 +434,7 @@ def test_event_body_private_properties_match_the_reschedule_check():
 
 def test_event_body_stores_empty_string_for_missing_team_ids():
     """Missing team IDs are stored as '' because Calendar private properties must be strings."""
-    props = _build_event_body(make_match(home_team_id=None, away_team_id=None), "UTC")["extendedProperties"]["private"]
+    props = _build_event_body(make_match(home_team_id=None, away_team_id=None), "UTC", UPDATED_AT)["extendedProperties"]["private"]
 
     assert props["home_team_id"] == ""
     assert props["away_team_id"] == ""
@@ -470,3 +472,21 @@ def test_does_not_update_when_title_and_details_unchanged():
 
     mock_service.events().update.assert_not_called()
     mock_service.events().insert.assert_not_called()
+
+
+def test_event_body_description_shows_update_time():
+    """The description tells when the app last wrote the event."""
+    body = _build_event_body(make_match(), "UTC", UPDATED_AT)
+
+    assert body["description"] == "Last updated: 2026-01-15 09:30:00"
+
+
+def test_update_events_uses_clock_for_lookback_window():
+    """Existing events are listed from 12 hours before the clock's current time."""
+    clock = FakeClock(datetime.datetime(2026, 1, 15, 12, 0, 0, 123456, tzinfo=datetime.timezone.utc))
+    mock_service = make_mock_service([])
+
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+                  game_list=[make_match()], clock=clock)
+
+    assert mock_service.events().list.call_args.kwargs["timeMin"] == "2026-01-15T00:00:00+00:00"
