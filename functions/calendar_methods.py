@@ -41,16 +41,6 @@ def _execute_with_retry(request) -> dict:
             time.sleep(delay)
 
 
-def new_calendar(service: Resource, calendar_name: str) -> dict | None:
-    """Create a new Google Calendar with the given name and return its resource dict, or None on failure."""
-    try:
-        created_calendar = _execute_with_retry(service.calendars().insert(body={"summary": calendar_name}))
-        return created_calendar
-    except HttpError as error:
-        logger.error(f"An error occurred creating calendar: {error}")
-        return None
-
-
 def _build_event_body(game: Match, time_zone: str) -> dict:
     """Build a Google Calendar event body for a given match."""
     return {

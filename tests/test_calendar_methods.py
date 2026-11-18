@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 from googleapiclient.errors import HttpError
 from objects.Match import Match
-from functions.calendar_methods import update_events, new_calendar
+from functions.calendar_methods import update_events
 
 
 START_TIME = datetime.datetime(2025, 6, 15, 14, 0, 0, tzinfo=datetime.timezone.utc)
@@ -52,33 +52,6 @@ def make_mock_service(existing_events: list) -> MagicMock:
     mock_service.events().list().execute.return_value = {"items": existing_events}  # no nextPageToken — single page
     mock_service.events().get().execute.return_value = existing_events[0] if existing_events else {}
     return mock_service
-
-
-# --- new_calendar tests ---
-
-def test_new_calendar_returns_created_calendar():
-    """Returns the created calendar dict on success."""
-    fake_calendar = {"id": "new_calendar_id", "summary": "My Sports Calendar"}
-    mock_service = MagicMock()
-    mock_service.calendars().insert().execute.return_value = fake_calendar
-
-    result = new_calendar(service=mock_service, calendar_name="My Sports Calendar")
-
-    assert result == fake_calendar
-    assert result["summary"] == "My Sports Calendar"
-
-
-def test_new_calendar_returns_none_on_http_error():
-    """Returns None when an HttpError occurs."""
-    mock_service = MagicMock()
-    mock_service.calendars().insert().execute.side_effect = HttpError(
-        resp=MagicMock(status=403),
-        content=b"Forbidden"
-    )
-
-    result = new_calendar(service=mock_service, calendar_name="My Sports Calendar")
-
-    assert result is None
 
 
 # --- update_events tests ---
