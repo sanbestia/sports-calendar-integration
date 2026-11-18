@@ -2,9 +2,10 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from config import FETCH_THRESHOLDS
+from objects.Clock import Clock
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +13,10 @@ DB_FILE = "fetch_log.db"
 
 
 class FetchTracker:
-    def __init__(self, db_path: str = DB_FILE):
+    def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None):
         """Initialise the tracker and create the fetch_log table if it doesn't exist."""
         self._db_path = db_path
+        self._clock = clock or Clock()
         # For :memory: databases, keep a single connection alive for the lifetime
         # of the object — each new connection() call would get its own empty database
         self._conn = sqlite3.connect(db_path, check_same_thread=False) if db_path == ":memory:" else None
@@ -67,7 +69,7 @@ class FetchTracker:
         next_match = datetime.fromisoformat(row[1]) if row[1] else None
         match_count = row[2]
 
-        now = datetime.now(timezone.utc)
+        now = self._clock.now()
         hours_since_fetch = (now - last_fetched).total_seconds() / 3600
         recheck_hours = self._get_recheck_hours(next_match, now, match_count)
 
@@ -91,7 +93,7 @@ class FetchTracker:
         next_match = datetime.fromisoformat(row[1]) if row[1] else None
         match_count = row[2]
 
-        now = datetime.now(timezone.utc)
+        now = self._clock.now()
         hours_since_fetch = (now - last_fetched).total_seconds() / 3600
         recheck_hours = self._get_recheck_hours(next_match, now, match_count)
         return max(0.0, recheck_hours - hours_since_fetch)
@@ -129,7 +131,7 @@ class FetchTracker:
                     match_count = excluded.match_count
             """, (
                 team_name,
-                datetime.now(timezone.utc).isoformat(),
+                self._clock.now().isoformat(),
                 next_match.isoformat() if next_match else None,
                 match_count
             ))

@@ -14,6 +14,7 @@ from functions.get_ids import get_ids
 from functions.utils import wait
 from objects.APICallTracker import APICallTracker
 from objects.FetchTracker import FetchTracker
+from objects.Clock import Clock
 from config import MAIN_LOOP_SLEEP_MINUTES
 
 load_dotenv()
@@ -76,8 +77,9 @@ def main() -> None:
     tz = get_localzone()
     creds = check_calendar_tokens()
     calendar_service = build("calendar", "v3", credentials=creds)
-    api_tracker = APICallTracker()
-    fetch_tracker = FetchTracker()
+    clock = Clock()
+    api_tracker = APICallTracker(clock=clock)
+    fetch_tracker = FetchTracker(clock=clock)
 
     if args.queries:
         queries = load_queries(args.queries)
@@ -122,7 +124,8 @@ def main() -> None:
                         calendar_id=data_dict["calendar"],
                         game_list=matches,
                         time_zone=str(tz),
-                        team_id=data_dict["id"]
+                        team_id=data_dict["id"],
+                        clock=clock
                     )
                 except BrokenPipeError:
                     logger.warning("Calendar connection lost (post-sleep?). Reconnecting and retrying...")
@@ -134,7 +137,8 @@ def main() -> None:
                             calendar_id=data_dict["calendar"],
                             game_list=matches,
                             time_zone=str(tz),
-                            team_id=data_dict["id"]
+                            team_id=data_dict["id"],
+                            clock=clock
                         )
                     except Exception as e:
                         logger.error(f"Calendar update failed after reconnect for '{name}': {e}")
@@ -145,14 +149,14 @@ def main() -> None:
             logger.info("--------------------------------------------------")
             logger.info("")
 
-        now = datetime.datetime.now(tz=tz)
+        now = clock.now().astimezone(tz)
         deadline = now + datetime.timedelta(minutes=sleep_minutes)
         logger.info(api_tracker.status())
         logger.info(
             f"Next cycle in {sleep_minutes} minute{'' if sleep_minutes == 1 else 's'} "
             f"(@ {deadline.hour:02}:{deadline.minute:02})"
         )
-        wait(deadline, tz)
+        wait(deadline, clock)
 
         logger.info("")
         logger.info("------------------------------------------------------------------------")

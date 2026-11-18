@@ -1,15 +1,14 @@
 import pytest
-from datetime import date
-from unittest.mock import patch
 from objects.APICallTracker import APICallTracker
+from tests.fakes import FakeClock
 
 
 _created_trackers: list[APICallTracker] = []
 
 
-def make_tracker(db_path: str = ":memory:") -> APICallTracker:
-    """Create a tracker (in-memory SQLite by default); it is closed after the test."""
-    tracker = APICallTracker(db_path=db_path)
+def make_tracker(db_path: str = ":memory:", clock: FakeClock | None = None) -> APICallTracker:
+    """Create a tracker (in-memory SQLite and a fake clock by default); it is closed after the test."""
+    tracker = APICallTracker(db_path=db_path, clock=clock or FakeClock())
     _created_trackers.append(tracker)
     return tracker
 
@@ -45,12 +44,12 @@ def test_loads_count_from_db_if_same_day(tmp_path):
 def test_does_not_load_count_from_previous_day(tmp_path):
     """A new tracker ignores the count stored for an earlier date."""
     db_path = str(tmp_path / "api_calls.db")
-    tracker = make_tracker(db_path)
+    clock = FakeClock()
+    tracker = make_tracker(db_path, clock=clock)
     tracker.increment()
 
-    with patch("objects.APICallTracker.date") as mock_date:
-        mock_date.today.return_value = date(2099, 1, 1)
-        next_day = make_tracker(db_path)
+    clock.advance(days=1)  # next day
+    next_day = make_tracker(db_path, clock=clock)
 
     assert next_day.count == 0
 
@@ -87,27 +86,27 @@ def test_daily_limit_comes_from_config():
 
 def test_resets_on_new_day():
     """Resets count automatically when the date changes."""
-    tracker = make_tracker()
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
     tracker.increment()
     tracker.increment()
     assert tracker.count == 2
 
-    with patch("objects.APICallTracker.date") as mock_date:
-        mock_date.today.return_value = date(2099, 1, 1)
-        tracker.increment()
+    clock.advance(days=1)  # next day
+    tracker.increment()
 
     assert tracker.count == 1
 
 
 def test_status_triggers_reset_on_new_day():
     """Status check also triggers a reset if the date has changed."""
-    tracker = make_tracker()
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
     tracker.increment()
     tracker.increment()
 
-    with patch("objects.APICallTracker.date") as mock_date:
-        mock_date.today.return_value = date(2099, 1, 1)
-        status = tracker.status()
+    clock.advance(days=1)  # next day
+    status = tracker.status()
 
     assert status == f"API calls today: 0/{tracker.daily_limit}"
 
@@ -135,11 +134,11 @@ def test_is_limit_reached_returns_true_when_over_limit():
 
 def test_is_limit_reached_resets_on_new_day():
     """Returns False after a day reset even if count was at the limit."""
-    tracker = make_tracker()
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
     tracker.count = tracker.daily_limit
 
-    with patch("objects.APICallTracker.date") as mock_date:
-        mock_date.today.return_value = date(2099, 1, 1)
-        result = tracker.is_limit_reached()
+    clock.advance(days=1)  # next day
+    result = tracker.is_limit_reached()
 
     assert result is False
