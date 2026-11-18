@@ -3,6 +3,7 @@ import json
 import logging
 import argparse
 import datetime
+from collections.abc import Callable, Mapping
 from dotenv import load_dotenv
 from tzlocal import get_localzone
 from googleapiclient.discovery import build
@@ -30,8 +31,8 @@ logger = logging.getLogger(__name__)
 _REQUIRED_QUERY_FIELDS = {"id", "sport", "player_type", "calendar"}
 
 
-def load_queries(filepath: str) -> dict:
-    """Load queries from a JSON file, resolving calendar IDs from environment variables."""
+def load_queries(filepath: str, env: Mapping[str, str] = os.environ) -> dict:
+    """Load queries from a JSON file, resolving calendar IDs from the given environment."""
     with open(filepath, "r") as f:
         raw = json.load(f)
 
@@ -40,7 +41,7 @@ def load_queries(filepath: str) -> dict:
         if missing:
             raise ValueError(f"Query '{name}' is missing required fields: {', '.join(sorted(missing))}")
         env_key = data["calendar"]
-        resolved = os.getenv(env_key)
+        resolved = env.get(env_key)
         if not resolved:
             raise ValueError(f"Environment variable '{env_key}' not found for '{name}'")
         data["calendar"] = resolved  # replace the env var key with the actual calendar ID so callers get the resolved value
@@ -48,12 +49,12 @@ def load_queries(filepath: str) -> dict:
     return raw
 
 
-def build_queries_from_get_ids(tracker: APICallTracker | None = None) -> dict:
+def build_queries_from_get_ids(tracker: APICallTracker | None = None, ask: Callable[[str], str] = input) -> dict:
     """Interactively build queries using get_ids(), prompting for calendar IDs."""
-    id_dict = get_ids(tracker=tracker)
+    id_dict = get_ids(tracker=tracker, ask=ask)
     queries = {}
     for team_id, data in id_dict.items():
-        calendar_id = input(f"Enter calendar id for {data['name']}: ")
+        calendar_id = ask(f"Enter calendar id for {data['name']}: ")
         queries[data["name"]] = {
             "id": team_id,
             "sport": data["sport"],
@@ -63,8 +64,8 @@ def build_queries_from_get_ids(tracker: APICallTracker | None = None) -> dict:
     return queries
 
 
-def main() -> None:
-    """Parse args, initialise services, and run the main fetch-and-sync loop."""
+def main(argv: list[str] | None = None) -> None:
+    """Parse args (sys.argv when argv is None), initialise services, and run the main fetch-and-sync loop."""
     parser = argparse.ArgumentParser(description="Sports Calendar Integration")
     parser.add_argument(
         "--queries",
@@ -72,7 +73,7 @@ def main() -> None:
         help="Path to a JSON file containing search queries",
         default=None
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     tz = get_localzone()
     creds = check_calendar_tokens()

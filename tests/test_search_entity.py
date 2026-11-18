@@ -3,6 +3,7 @@ import pytest
 import requests
 from unittest.mock import patch, MagicMock
 from functions.search_entity import search_entity, pick_entity
+from tests.fakes import ScriptedInput
 
 
 # --- Helpers ---
@@ -227,33 +228,30 @@ def test_pick_entity_returns_none_on_empty_list():
 
 def test_pick_entity_returns_chosen_when_confirmed():
     """Returns the chosen hit when user confirms."""
-    with patch("builtins.input", side_effect=["1", "Y"]):
-        result = pick_entity(FAKE_HITS)
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("1", "Y"))
 
     assert result["id"] == "3429"
 
 
 def test_pick_entity_returns_none_when_rejected():
     """Returns None when user rejects the selection."""
-    with patch("builtins.input", side_effect=["1", "N"]):
-        result = pick_entity(FAKE_HITS)
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("1", "N"))
 
     assert result is None
 
 
 def test_pick_entity_skips_selection_prompt_for_single_hit():
     """Skips the number selection prompt when there is only one result."""
-    with patch("builtins.input", return_value="Y") as mock_input:
-        result = pick_entity(FAKE_SINGLE_HIT)
+    ask = ScriptedInput("Y")
+    result = pick_entity(FAKE_SINGLE_HIT, ask=ask)
 
     assert result["id"] == "3429"
-    assert mock_input.call_count == 1
+    assert len(ask.prompts) == 1
 
 
 def test_pick_entity_returns_correct_hit_when_second_option_chosen():
     """Returns the second hit when user selects option 2."""
-    with patch("builtins.input", side_effect=["2", "Y"]):
-        result = pick_entity(FAKE_HITS)
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("2", "Y"))
 
     assert result["id"] == "9999"
     assert result["name"] == "San Antonio FC"
@@ -264,45 +262,37 @@ def test_pick_entity_returns_correct_hit_when_second_option_chosen():
 from functions.utils import _ask_yes_no
 
 def test_ask_yes_no_returns_true_on_y():
-    with patch("builtins.input", return_value="Y"):
-        assert _ask_yes_no("Continue? Y/N: ") is True
+    assert _ask_yes_no("Continue? Y/N: ", ask=ScriptedInput("Y")) is True
 
 
 def test_ask_yes_no_returns_false_on_n():
-    with patch("builtins.input", return_value="N"):
-        assert _ask_yes_no("Continue? Y/N: ") is False
+    assert _ask_yes_no("Continue? Y/N: ", ask=ScriptedInput("N")) is False
 
 
 def test_ask_yes_no_is_case_insensitive():
-    with patch("builtins.input", side_effect=["y"]):
-        assert _ask_yes_no("Continue? Y/N: ") is True
-    with patch("builtins.input", side_effect=["n"]):
-        assert _ask_yes_no("Continue? Y/N: ") is False
+    assert _ask_yes_no("Continue? Y/N: ", ask=ScriptedInput("y")) is True
+    assert _ask_yes_no("Continue? Y/N: ", ask=ScriptedInput("n")) is False
 
 
 def test_ask_yes_no_retries_on_invalid_input():
-    with patch("builtins.input", side_effect=["maybe", "yes", "Y"]):
-        result = _ask_yes_no("Continue? Y/N: ")
+    result = _ask_yes_no("Continue? Y/N: ", ask=ScriptedInput("maybe", "yes", "Y"))
     assert result is True
 
 
 # --- pick_entity input validation tests ---
 
 def test_pick_entity_retries_on_non_numeric_input():
-    with patch("builtins.input", side_effect=["abc", "1", "Y"]):
-        result = pick_entity(FAKE_HITS)
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("abc", "1", "Y"))
     assert result["id"] == "3429"
 
 
 def test_pick_entity_retries_on_out_of_range_input():
-    with patch("builtins.input", side_effect=["0", "99", "1", "Y"]):
-        result = pick_entity(FAKE_HITS)
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("0", "99", "1", "Y"))
     assert result["id"] == "3429"
 
 
 def test_pick_entity_retries_on_invalid_confirmation():
-    with patch("builtins.input", side_effect=["1", "maybe", "Y"]):
-        result = pick_entity(FAKE_HITS)
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("1", "maybe", "Y"))
     assert result["id"] == "3429"
 
 def test_search_entity_raises_when_api_key_missing(monkeypatch):

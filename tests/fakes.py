@@ -22,3 +22,17 @@ class FakeClock:
     def advance(self, **delta: float) -> None:
         """Move time forward, e.g. advance(days=1)."""
         self._now += timedelta(**delta)
+
+
+class ScriptedInput:
+    """Stands in for input(): returns the given answers in order and records each prompt."""
+
+    def __init__(self, *answers: str):
+        self._answers = list(answers)
+        self.prompts: list[str] = []
+
+    def __call__(self, prompt: str = "") -> str:
+        self.prompts.append(prompt)
+        if not self._answers:
+            raise AssertionError(f"No scripted answer left for prompt: {prompt!r}")
+        return self._answers.pop(0)

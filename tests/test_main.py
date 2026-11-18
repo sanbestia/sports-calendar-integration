@@ -1,9 +1,9 @@
 import pytest
 import json
-import os
 import datetime
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
+from tests.fakes import ScriptedInput
 from main import main, load_queries, build_queries_from_get_ids
 
 
@@ -25,47 +25,47 @@ FAKE_RAW_QUERIES = {
 
 # --- load_queries tests ---
 
-def test_load_queries_resolves_env_variables():
-    """Resolves calendar env keys to actual IDs from environment."""
-    with patch("builtins.open", mock_open(read_data=json.dumps(FAKE_RAW_QUERIES))), \
-         patch.dict(os.environ, {
-             "CALENDAR_ID_BASKETBALL": "real_basketball_calendar_id",
-             "CALENDAR_ID_ESPORTS": "real_esports_calendar_id"
-         }):
-        result = load_queries("queries.json")
+FAKE_ENV = {
+    "CALENDAR_ID_BASKETBALL": "real_basketball_calendar_id",
+    "CALENDAR_ID_ESPORTS": "real_esports_calendar_id",
+}
+
+
+def write_queries(tmp_path, queries: dict) -> str:
+    """Write a queries file and return its path."""
+    path = tmp_path / "queries.json"
+    path.write_text(json.dumps(queries))
+    return str(path)
+
+
+def test_load_queries_resolves_env_variables(tmp_path):
+    """Resolves calendar env keys to actual IDs from the given environment."""
+    result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), env=FAKE_ENV)
 
     assert result["San Antonio Spurs"]["calendar"] == "real_basketball_calendar_id"
     assert result["T1"]["calendar"] == "real_esports_calendar_id"
 
 
-def test_load_queries_raises_when_env_variable_missing():
+def test_load_queries_raises_when_env_variable_missing(tmp_path):
     """Raises ValueError when a calendar env key is not set."""
-    with patch("builtins.open", mock_open(read_data=json.dumps(FAKE_RAW_QUERIES))), \
-         patch.dict(os.environ, {}, clear=True):
-        with pytest.raises(ValueError, match="CALENDAR_ID_BASKETBALL"):
-            load_queries("queries.json")
+    with pytest.raises(ValueError, match="CALENDAR_ID_BASKETBALL"):
+        load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), env={})
 
 
-def test_load_queries_preserves_other_fields():
+def test_load_queries_preserves_other_fields(tmp_path):
     """Preserves id, sport and player_type fields after loading."""
-    with patch("builtins.open", mock_open(read_data=json.dumps(FAKE_RAW_QUERIES))), \
-         patch.dict(os.environ, {
-             "CALENDAR_ID_BASKETBALL": "real_basketball_calendar_id",
-             "CALENDAR_ID_ESPORTS": "real_esports_calendar_id"
-         }):
-        result = load_queries("queries.json")
+    result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), env=FAKE_ENV)
 
     assert result["San Antonio Spurs"]["id"] == "3429"
     assert result["San Antonio Spurs"]["sport"] == "basketball"
     assert result["San Antonio Spurs"]["player_type"] == "team"
 
 
-def test_load_queries_raises_when_required_field_missing():
+def test_load_queries_raises_when_required_field_missing(tmp_path):
     """Names the query and the missing field when an entry is incomplete."""
     incomplete = {"T1": {"id": "364366", "sport": "esport", "calendar": "CALENDAR_ID_ESPORTS"}}
-    with patch("builtins.open", mock_open(read_data=json.dumps(incomplete))):
-        with pytest.raises(ValueError, match="'T1' is missing required fields: player_type"):
-            load_queries("queries.json")
+    with pytest.raises(ValueError, match="'T1' is missing required fields: player_type"):
+        load_queries(write_queries(tmp_path, incomplete), env=FAKE_ENV)
 
 
 # --- build_queries_from_get_ids tests ---
@@ -76,9 +76,8 @@ def test_build_queries_returns_correct_structure():
         "3429": {"name": "San Antonio Spurs", "sport": "basketball", "player_type": "team"}
     }
 
-    with patch("main.get_ids", return_value=fake_id_dict), \
-         patch("builtins.input", return_value="real_basketball_calendar_id"):
-        result = build_queries_from_get_ids()
+    with patch("main.get_ids", return_value=fake_id_dict):
+        result = build_queries_from_get_ids(ask=ScriptedInput("real_basketball_calendar_id"))
 
     assert "San Antonio Spurs" in result
     assert result["San Antonio Spurs"]["id"] == "3429"
@@ -93,9 +92,8 @@ def test_build_queries_preserves_player_type_for_player():
         "275923": {"name": "Carlos Alcaraz", "sport": "tennis", "player_type": "player"}
     }
 
-    with patch("main.get_ids", return_value=fake_id_dict), \
-         patch("builtins.input", return_value="real_tennis_calendar_id"):
-        result = build_queries_from_get_ids()
+    with patch("main.get_ids", return_value=fake_id_dict):
+        result = build_queries_from_get_ids(ask=ScriptedInput("real_tennis_calendar_id"))
 
     assert result["Carlos Alcaraz"]["player_type"] == "player"
 
@@ -107,12 +105,8 @@ def test_build_queries_handles_multiple_entries():
         "364366": {"name": "T1",                "sport": "esport",     "player_type": "team"}
     }
 
-    with patch("main.get_ids", return_value=fake_id_dict), \
-         patch("builtins.input", side_effect=[
-             "real_basketball_calendar_id",
-             "real_esports_calendar_id"
-         ]):
-        result = build_queries_from_get_ids()
+    with patch("main.get_ids", return_value=fake_id_dict):
+        result = build_queries_from_get_ids(ask=ScriptedInput("real_basketball_calendar_id", "real_esports_calendar_id"))
 
     assert len(result) == 2
     assert "San Antonio Spurs" in result
