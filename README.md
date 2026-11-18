@@ -223,5 +223,6 @@ Contributions are welcome! If you'd like to add support for a new sport, improve
 4. Submit a pull request
 
 Please make sure any new functionality is covered by tests.
+When you add a feature, or add, move or remove a module or a folder, update this README in the same commit.
 
 ---
