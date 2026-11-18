@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 from googleapiclient.errors import HttpError
 from objects.Match import Match
-from functions.calendar_methods import update_events
+from functions.calendar_methods import update_events, _build_event_body
 
 
 START_TIME = datetime.datetime(2025, 6, 15, 14, 0, 0, tzinfo=datetime.timezone.utc)
@@ -308,3 +308,131 @@ def test_does_not_delete_past_event():
     )
 
     mock_service.events().delete.assert_not_called()
+
+
+# --- update_events: paging and error paths ---
+
+def make_http_error(status: int = 403) -> HttpError:
+    """A non-retryable HttpError by default, so _execute_with_retry does not sleep."""
+    return HttpError(resp=MagicMock(status=status), content=b"error")
+
+
+def test_reads_every_page_of_existing_events():
+    """Events on a later page of events().list count as existing, so they are not created again."""
+    page_one_event = make_existing_event(game_id="111")
+    page_two_event = make_existing_event(game_id="222")
+    mock_service = MagicMock()
+    mock_service.events().list().execute.side_effect = [
+        {"items": [page_one_event], "nextPageToken": "page-2"},
+        {"items": [page_two_event]},
+    ]
+
+    result = update_events(
+        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        game_list=[make_match(game_id="111"), make_match(game_id="222")],
+    )
+
+    mock_service.events().insert.assert_not_called()
+    assert mock_service.events().list.call_args.kwargs["pageToken"] == "page-2"
+    assert result == 2
+
+
+def test_continues_and_does_not_count_when_insert_fails(caplog):
+    """A failed insert is logged, is not counted, and does not stop the other matches."""
+    mock_service = make_mock_service([])
+    mock_service.events().insert().execute.side_effect = [make_http_error(), {"summary": "ok"}]
+
+    result = update_events(
+        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        game_list=[make_match(game_id="1"), make_match(game_id="2")],
+    )
+
+    assert result == 1
+    assert "An error occurred" in caplog.text
+
+
+def test_continues_when_delete_fails(caplog):
+    """A failed delete of an orphaned event is logged and does not raise."""
+    orphan = make_existing_event(game_id="999")
+    mock_service = make_mock_service([orphan])
+    mock_service.events().delete().execute.side_effect = make_http_error()
+
+    result = update_events(
+        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        game_list=[make_match(game_id="123")],
+    )
+
+    assert result == 1  # the new match is created; the orphan is not counted
+    assert "Error deleting event" in caplog.text
+
+
+def test_count_excludes_deleted_orphan():
+    """The returned count holds the kept events plus the created ones, not the deleted orphans."""
+    kept = make_existing_event(game_id="123")
+    orphan = make_existing_event(game_id="999")
+    orphan["id"] = "orphan_event_id"
+    mock_service = make_mock_service([kept, orphan])
+
+    result = update_events(
+        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        game_list=[make_match(game_id="123")],
+    )
+
+    mock_service.events().delete.assert_called_with(calendarId="cal", eventId="orphan_event_id")
+    assert result == 1
+
+
+def test_update_keeps_fields_not_in_event_body():
+    """An update starts from the full stored event, so fields such as attendees are kept."""
+    existing = make_existing_event(game_id="123")
+    full_event = {**existing, "attendees": [{"email": "friend@example.com"}]}
+    mock_service = make_mock_service([existing])
+    mock_service.events().get().execute.return_value = full_event
+    moved = make_match(game_id="123", start_time=FUTURE_START_TIME + datetime.timedelta(hours=2))
+
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=[moved])
+
+    body = mock_service.events().update.call_args.kwargs["body"]
+    assert body["attendees"] == [{"email": "friend@example.com"}]
+    assert body["start"]["dateTime"] == moved.start_time.isoformat()
+
+
+# --- _build_event_body ---
+
+def test_event_body_summary_has_sport_icon_and_match_details():
+    """The summary is '<icon> <side one> vs <side two> - <tournament> (<stage>)'."""
+    body = _build_event_body(make_match(), "UTC")
+
+    assert body["summary"] == "⚽ Team A vs Team B - Some League (Round 1)"
+
+
+def test_event_body_uses_start_and_expected_end_in_given_time_zone():
+    """Start and end come from the match, and both carry the given time zone."""
+    match = make_match()
+    body = _build_event_body(match, "America/Argentina/Buenos_Aires")
+
+    assert body["start"] == {"dateTime": match.start_time.isoformat(), "timeZone": "America/Argentina/Buenos_Aires"}
+    assert body["end"] == {"dateTime": match.expected_end_time.isoformat(), "timeZone": "America/Argentina/Buenos_Aires"}
+
+
+def test_event_body_private_properties_match_the_reschedule_check():
+    """The private properties hold the values that update_events compares later."""
+    match = make_match(game_id=123, home_team_id=10, away_team_id=20)
+    props = _build_event_body(match, "UTC")["extendedProperties"]["private"]
+
+    assert props == {
+        "game_id": "123",
+        "home_team_id": "10",
+        "away_team_id": "20",
+        "side_one": "Team A",
+        "side_two": "Team B",
+        "start_time": match.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def test_event_body_stores_empty_string_for_missing_team_ids():
+    """Missing team IDs are stored as '' because Calendar private properties must be strings."""
+    props = _build_event_body(make_match(home_team_id=None, away_team_id=None), "UTC")["extendedProperties"]["private"]
+
+    assert props["home_team_id"] == ""
+    assert props["away_team_id"] == ""

@@ -4,9 +4,22 @@ from unittest.mock import patch
 from objects.APICallTracker import APICallTracker
 
 
-def make_tracker() -> APICallTracker:
-    """Create a tracker backed by an in-memory SQLite database."""
-    return APICallTracker(db_path=":memory:")
+_created_trackers: list[APICallTracker] = []
+
+
+def make_tracker(db_path: str = ":memory:") -> APICallTracker:
+    """Create a tracker (in-memory SQLite by default); it is closed after the test."""
+    tracker = APICallTracker(db_path=db_path)
+    _created_trackers.append(tracker)
+    return tracker
+
+
+@pytest.fixture(autouse=True)
+def _close_trackers():
+    """Close every tracker created during a test so no SQLite connection is left open."""
+    yield
+    while _created_trackers:
+        _created_trackers.pop().close()
 
 
 # --- Tests ---
@@ -17,15 +30,29 @@ def test_initial_count_is_zero_when_no_entry():
     assert tracker.count == 0
 
 
-def test_loads_count_from_db_if_same_day():
-    """Loads count from database when date matches today."""
-    tracker = make_tracker()
+def test_loads_count_from_db_if_same_day(tmp_path):
+    """A new tracker on the same file starts from today's stored count (the service restart case)."""
+    db_path = str(tmp_path / "api_calls.db")
+    tracker = make_tracker(db_path)
     tracker.increment()
     tracker.increment()
 
-    # Create a second tracker pointing to the same in-memory DB — not possible with :memory:
-    # so we verify count is correctly persisted by reloading via _load()
-    assert tracker._load() == 2
+    restarted = make_tracker(db_path)
+
+    assert restarted.count == 2
+
+
+def test_does_not_load_count_from_previous_day(tmp_path):
+    """A new tracker ignores the count stored for an earlier date."""
+    db_path = str(tmp_path / "api_calls.db")
+    tracker = make_tracker(db_path)
+    tracker.increment()
+
+    with patch("objects.APICallTracker.date") as mock_date:
+        mock_date.today.return_value = date(2099, 1, 1)
+        next_day = make_tracker(db_path)
+
+    assert next_day.count == 0
 
 
 def test_increment_increases_count():

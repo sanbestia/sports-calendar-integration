@@ -92,10 +92,6 @@ def test_string_with_unicode_passes_through():
 TIME_ZONE = datetime.timezone.utc
 
 
-def make_deadline(seconds_from_now: float) -> datetime.datetime:
-    return datetime.datetime.now(TIME_ZONE) + datetime.timedelta(seconds=seconds_from_now)
-
-
 # --- Already past deadline ---
 
 def test_does_not_sleep_when_deadline_already_passed():

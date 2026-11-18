@@ -304,3 +304,12 @@ def test_pick_entity_retries_on_invalid_confirmation():
     with patch("builtins.input", side_effect=["1", "maybe", "Y"]):
         result = pick_entity(FAKE_HITS)
     assert result["id"] == "3429"
+
+def test_search_entity_raises_when_api_key_missing(monkeypatch):
+    """Fails fast, with no request, when RAPIDAPI_KEY is not set."""
+    monkeypatch.delenv("RAPIDAPI_KEY")
+    with patch("functions.search_entity.requests.get") as mock_get:
+        with pytest.raises(ValueError, match="RAPIDAPI_KEY"):
+            search_entity("Lakers", "basketball", tracker=MagicMock())
+
+    mock_get.assert_not_called()
