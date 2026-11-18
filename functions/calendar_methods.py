@@ -41,10 +41,15 @@ def _execute_with_retry(request) -> dict:
             time.sleep(delay)
 
 
+def _build_summary(game: Match) -> str:
+    """Build the event title: '<icon> <side one> vs <side two> - <tournament> (<stage>)'."""
+    return f'{ICONS[game.sport]} {game.side_one} vs {game.side_two} - {game.tournament} ({game.stage})'
+
+
 def _build_event_body(game: Match, time_zone: str) -> dict:
     """Build a Google Calendar event body for a given match."""
     return {
-        'summary': f'{ICONS[game.sport]} {game.side_one} vs {game.side_two} - {game.tournament} ({game.stage})',
+        'summary': _build_summary(game),
         'description': f'Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
         'start': {
             'dateTime': game.start_time.isoformat(),
@@ -107,15 +112,17 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
 
         if event:
             props = event.get("extendedProperties", {}).get("private", {})
-            # compare stored private properties (not the Calendar's own start time) to detect reschedules or team changes
+            # compare stored private properties (not the Calendar's own start time) to detect reschedules or team changes,
+            # and the title to catch tournament or stage renames, which are not stored as private properties
             if (
                 props.get("start_time") != game.start_time.strftime("%Y-%m-%d %H:%M:%S")
                 or props.get("side_one") != game.side_one
                 or props.get("side_two") != game.side_two
                 or props.get("home_team_id") != game.home_team_id
                 or props.get("away_team_id") != game.away_team_id
+                or event.get("summary") != _build_summary(game)
             ):
-                logger.info("Found change in event schedule. Updating...")
+                logger.info("Found change in event details. Updating...")
                 event_to_update = _execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event["id"]))  # fetch full event first to preserve fields not in _build_event_body (e.g. attendees)
                 event_to_update.update(_build_event_body(game, time_zone))
                 updated_event = _execute_with_retry(service.events().update(
