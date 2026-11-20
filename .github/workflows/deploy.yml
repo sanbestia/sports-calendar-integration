@@ -35,4 +35,6 @@ jobs:
             cd /home/ubuntu/sports_calendar_integration
             git fetch origin main
             git reset --hard origin/main
+            sudo install -m 644 deploy/sports-calendar.service /etc/systemd/system/sports-calendar.service
+            sudo systemctl daemon-reload
             sudo systemctl restart sports-calendar
