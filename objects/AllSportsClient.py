@@ -35,6 +35,7 @@ class AllSportsClient:
         self._headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": _HOST}
         self._tracker = tracker
         self._session = session if session is not None else requests.Session()  # reuses the TLS connection across pages
+        self.calls_made = 0  # requests that reached the API since this client was created (never resets, unlike the daily count)
 
     def get(self, path: str, model: type[ResponseModel]) -> ResponseModel | None:
         """GET BASE_URL + path and validate the JSON body as `model`.
@@ -47,6 +48,7 @@ class AllSportsClient:
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             raise AllSportsError(f"Couldn't communicate with sports API ({path}): {e}") from e
         self._tracker.increment()  # count only requests that reached the API
+        self.calls_made += 1
 
         if not response.text:
             return None

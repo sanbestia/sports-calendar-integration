@@ -12,7 +12,7 @@ from tzlocal import get_localzone
 from googleapiclient.discovery import build
 
 from functions.check_calendar_tokens import check_calendar_tokens
-from functions.calendar_methods import update_events
+from functions.calendar_methods import update_events, SyncResult
 from functions.get_next_matches import get_next_matches
 from functions.get_ids import get_ids
 from functions.log_setup import configure_logging
@@ -20,6 +20,7 @@ from functions.utils import wait
 from objects.APICallTracker import APICallTracker
 from objects.AllSportsClient import AllSportsClient
 from objects.FetchTracker import FetchTracker
+from objects.FetchHistory import FetchHistory
 from objects.Clock import Clock
 from config import MAIN_LOOP_SLEEP_MINUTES
 
@@ -80,15 +81,25 @@ class LoopDeps:
     client: AllSportsClient
     api_tracker: APICallTracker
     fetch_tracker: FetchTracker
+    history: FetchHistory
     calendar: CalendarConnection
     clock: Clock
     tz: datetime.tzinfo
-    fetch_matches: Callable[..., list] = get_next_matches
-    sync_events: Callable[..., int] = update_events
+    fetch_matches: Callable[..., list | None] = get_next_matches
+    sync_events: Callable[..., SyncResult] = update_events
 
 
-def _sync(deps: LoopDeps, data_dict: dict, matches: list) -> int:
-    """Write one entity's matches to its calendar and return its event count."""
+@dataclass(frozen=True)
+class FetchOutcome:
+    """What one entity's fetch-and-sync step ended with; it becomes one fetch_history row."""
+    outcome: str  # 'matches', 'empty' or 'failed'
+    matches: int = 0
+    sync: SyncResult | None = None
+    error: str | None = None
+
+
+def _sync(deps: LoopDeps, data_dict: dict, matches: list) -> SyncResult:
+    """Write one entity's matches to its calendar and return what changed."""
     return deps.sync_events(
         service=deps.calendar.service,
         calendar_id=data_dict["calendar"],
@@ -99,8 +110,8 @@ def _sync(deps: LoopDeps, data_dict: dict, matches: list) -> int:
     )
 
 
-def _fetch_and_sync(name: str, data_dict: dict, deps: LoopDeps) -> None:
-    """Fetch one entity's matches, write them to its calendar, and record the result.
+def _fetch_and_sync(name: str, data_dict: dict, deps: LoopDeps) -> FetchOutcome:
+    """Fetch one entity's matches, write them to its calendar, and record the result in the fetch log.
 
     A failed fetch (None) is recorded as a failure, not as an empty schedule. Any other error is raised
     to run_cycle, which records it as a failure too.
@@ -115,20 +126,31 @@ def _fetch_and_sync(name: str, data_dict: dict, deps: LoopDeps) -> None:
     )
     if matches is None:  # already logged by the fetch; retry soon
         deps.fetch_tracker.record_failure(name)
-        return
+        return FetchOutcome("failed", error="fetch failed (see the log)")
 
     earliest = min((m.start_time for m in matches), default=None)  # default=None avoids ValueError when matches is empty
 
-    match_count = 0
+    sync = None
     if matches:
         try:
-            match_count = _sync(deps, data_dict, matches)
+            sync = _sync(deps, data_dict, matches)
         except BrokenPipeError:
             logger.warning("Calendar connection lost (post-sleep?). Reconnecting and retrying...")
             deps.calendar.reconnect()
-            match_count = _sync(deps, data_dict, matches)  # a second failure goes to run_cycle's handler
+            sync = _sync(deps, data_dict, matches)  # a second failure goes to run_cycle's handler
 
-    deps.fetch_tracker.record_fetch(name, earliest, match_count, player_type=data_dict["player_type"])
+    deps.fetch_tracker.record_fetch(name, earliest, sync.event_count if sync else 0, player_type=data_dict["player_type"])
+    return FetchOutcome("matches", matches=len(matches), sync=sync) if matches else FetchOutcome("empty")
+
+
+def _record_history(deps: LoopDeps, name: str, data_dict: dict, result: FetchOutcome, api_calls: int) -> None:
+    """Add the fetch to fetch_history. A failed write is only a warning: it must not turn a good fetch into a failure."""
+    sync = result.sync or SyncResult(event_count=0)
+    try:
+        deps.history.record(name, data_dict["player_type"], result.outcome, api_calls=api_calls, matches=result.matches,
+                            created=sync.created, updated=sync.updated, deleted=sync.deleted, error=result.error)
+    except Exception as e:
+        logger.warning(f"Could not write fetch history for '{name}': {e}")
 
 
 def run_cycle(queries: dict, deps: LoopDeps) -> int:
@@ -152,11 +174,14 @@ def run_cycle(queries: dict, deps: LoopDeps) -> int:
             continue
 
         fetched += 1
+        calls_before = deps.client.calls_made
         try:
-            _fetch_and_sync(name, data_dict, deps)
-        except Exception:  # one entity's failure must not stop the service: a crash would restart, refetch and crash again
+            result = _fetch_and_sync(name, data_dict, deps)
+        except Exception as e:  # one entity's failure must not stop the service: a crash would restart, refetch and crash again
             logger.exception(f"Fetch or calendar sync failed for '{name}'")
             deps.fetch_tracker.record_failure(name)
+            result = FetchOutcome("failed", error=f"{type(e).__name__}: {e}")
+        _record_history(deps, name, data_dict, result, api_calls=deps.client.calls_made - calls_before)
 
     return fetched
 
@@ -209,6 +234,7 @@ def main(argv: list[str] | None = None) -> None:
         client=client,
         api_tracker=api_tracker,
         fetch_tracker=FetchTracker(clock=clock),
+        history=FetchHistory(clock=clock),
         calendar=calendar,
         clock=clock,
         tz=tz

@@ -1,47 +1,22 @@
-import sqlite3
-from collections.abc import Iterator
-from contextlib import contextmanager
 import logging
 from config import MAX_API_CALLS
 from objects.Clock import Clock
+from objects.SqliteStore import SqliteStore
 
 logger = logging.getLogger(__name__)
 
 DB_FILE = "api_calls.db"
 
 
-class APICallTracker:
+class APICallTracker(SqliteStore):
     def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None):
         """Initialise the tracker, creating the database table and loading today's call count."""
+        super().__init__(db_path)
         self.daily_limit = MAX_API_CALLS
         self._clock = clock or Clock()
         self.current_date = self._clock.today()  # cached locally; compared in _check_reset to detect day rollover
-        self._db_path = db_path
-        # For :memory: databases, keep a single connection alive for the lifetime
-        # of the object — each new connection() call would get its own empty database
-        self._conn = sqlite3.connect(db_path, check_same_thread=False) if db_path == ":memory:" else None
         self._init_db()
         self.count = self._load()
-
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        """Yield a connection that commits on success and rolls back on error.
-
-        File-based connections are closed afterwards; the persistent :memory: connection is kept open.
-        """
-        conn = self._conn if self._conn is not None else sqlite3.connect(self._db_path)
-        try:
-            with conn:  # sqlite3's own context manager only commits/rolls back; it does not close
-                yield conn
-        finally:
-            if conn is not self._conn:
-                conn.close()
-
-    def close(self) -> None:
-        """Close the persistent :memory: connection, if any."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
 
     def _init_db(self) -> None:
         """Create the table if it doesn't exist yet."""

@@ -11,7 +11,7 @@ import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -263,6 +263,45 @@ def stale_teams(hours: float = 48, db_path: str = FETCH_LOG_DB, raw: bool = Fals
     result["hours_until_match"] = result["hours_until_match"].map(_fmt_float)
     return result
 
+
+
+# ============================================================
+# fetch_history (one row per fetch, in fetch_log.db)
+# ============================================================
+
+def _history_df(days: int, db_path: str, columns: str) -> pd.DataFrame:
+    """Rows of fetch_history from the last `days` days (today included); empty if the table does not exist yet."""
+    first_day = (date.today() - timedelta(days=days - 1)).isoformat()
+    with _connect(db_path) as conn:
+        exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fetch_history'").fetchone()
+        if not exists:
+            return pd.DataFrame(columns=[c.strip() for c in columns.split(",")])
+        return pd.read_sql_query(f"SELECT {columns} FROM fetch_history WHERE day >= ? ORDER BY fetched_at", conn, params=(first_day,))
+
+
+def calls_per_entity(days: int = 7, db_path: str = FETCH_LOG_DB) -> pd.DataFrame:
+    """API calls and fetches per entity over the last N days, most calls first (columns: entity, fetches, api_calls, calls_per_day)."""
+    df = _history_df(days, db_path, "entity, api_calls")
+    if df.empty:
+        return pd.DataFrame(columns=["entity", "fetches", "api_calls", "calls_per_day"])
+    result = df.groupby("entity").agg(fetches=("api_calls", "size"), api_calls=("api_calls", "sum")).reset_index()
+    result["calls_per_day"] = (result["api_calls"] / days).round(2)
+    return result.sort_values(["api_calls", "entity"], ascending=[False, True]).reset_index(drop=True)
+
+
+def outcomes_per_entity(days: int = 7, db_path: str = FETCH_LOG_DB) -> pd.DataFrame:
+    """How each entity's fetches ended over the last N days (columns: entity, matches, empty, failed)."""
+    df = _history_df(days, db_path, "entity, outcome")
+    result = pd.crosstab(df["entity"], df["outcome"]) if not df.empty else pd.DataFrame()
+    result = result.reindex(columns=["matches", "empty", "failed"], fill_value=0)
+    return result.rename_axis(columns=None).reset_index().rename(columns={"index": "entity"})
+
+
+def recent_failures(days: int = 7, db_path: str = FETCH_LOG_DB) -> pd.DataFrame:
+    """Failed fetches over the last N days, newest first (columns: fetched_at, entity, error)."""
+    df = _history_df(days, db_path, "fetched_at, entity, outcome, error")
+    df = df[df["outcome"] == "failed"][["fetched_at", "entity", "error"]]
+    return df.iloc[::-1].reset_index(drop=True)
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point: call any public function in this module by name (argv defaults to sys.argv[1:])."""

@@ -1,11 +1,9 @@
-import sqlite3
-from collections.abc import Iterator
-from contextlib import contextmanager
 import logging
 from datetime import datetime, timedelta
 
 from config import FETCH_THRESHOLDS
 from objects.Clock import Clock
+from objects.SqliteStore import SqliteStore
 
 logger = logging.getLogger(__name__)
 
@@ -20,35 +18,12 @@ _ADDED_COLUMNS = {
 }
 
 
-class FetchTracker:
+class FetchTracker(SqliteStore):
     def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None):
         """Initialise the tracker and create the fetch_log table if it doesn't exist."""
-        self._db_path = db_path
+        super().__init__(db_path)
         self._clock = clock or Clock()
-        # For :memory: databases, keep a single connection alive for the lifetime
-        # of the object — each new connection() call would get its own empty database
-        self._conn = sqlite3.connect(db_path, check_same_thread=False) if db_path == ":memory:" else None
         self._init_db()
-
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        """Yield a connection that commits on success and rolls back on error.
-
-        File-based connections are closed afterwards; the persistent :memory: connection is kept open.
-        """
-        conn = self._conn if self._conn is not None else sqlite3.connect(self._db_path)
-        try:
-            with conn:  # sqlite3's own context manager only commits/rolls back; it does not close
-                yield conn
-        finally:
-            if conn is not self._conn:
-                conn.close()
-
-    def close(self) -> None:
-        """Close the persistent :memory: connection, if any."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
 
     def _init_db(self) -> None:
         """Create the table if it doesn't exist yet, and add columns that older databases lack."""
