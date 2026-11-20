@@ -10,9 +10,9 @@ FETCH_THRESHOLDS = {
 
 MAIN_LOOP_SLEEP_MINUTES = 5
 
-# The AllSports free tier allows 100 calls per day, a hard limit. Normal use should stay at about 40-70 calls per day:
-# that leaves headroom for outages and retries without wasting the budget. Check that range when you change
-# FETCH_THRESHOLDS or add teams (`uv run python functions/db_stats.py avg_daily_calls`).
+# The AllSports free tier allows 100 calls per day, a hard limit. Normal use should not often go above 70 calls
+# per day, which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the
+# ceiling when you change FETCH_THRESHOLDS or add teams (`uv run python functions/db_stats.py avg_daily_calls`).
 MAX_API_CALLS = 100
 
 GRAND_SLAM_TOURNAMENTS = ["US Open", "Wimbledon", "Australian Open", "French Open"]
