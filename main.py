@@ -127,7 +127,7 @@ def _fetch_and_sync(name: str, data_dict: dict, deps: LoopDeps) -> None:
             deps.calendar.reconnect()
             match_count = _sync(deps, data_dict, matches)  # a second failure goes to run_cycle's handler
 
-    deps.fetch_tracker.record_fetch(name, earliest, match_count)
+    deps.fetch_tracker.record_fetch(name, earliest, match_count, player_type=data_dict["player_type"])
 
 
 def run_cycle(queries: dict, deps: LoopDeps) -> None:

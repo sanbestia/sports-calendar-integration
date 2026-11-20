@@ -93,7 +93,9 @@ FETCH_THRESHOLDS = {
     "far":           {"days": 7,  "recheck_hours": 48},  # next match is more than 7 days away
     "medium":        {"days": 3,  "recheck_hours": 24},  # next match is 3-7 days away
     "near":          {"days": 0,  "recheck_hours": 12},   # next match is within 3 days
-    "unknown":       {"recheck_hours": 8},               # no upcoming match found
+    "unknown":       {"recheck_hours": 8,                # no upcoming match found: wait 8h for the first grace_days
+                      "grace_days": 3,                   # (playoff gaps between rounds, tennis between rounds and draws),
+                      "max_recheck_hours": {"player": 12, "team": 48}},  # then double the wait for each empty result, up to the cap
     "imminent":      {"hours": 24, "recheck_hours": 4},  # single match within this many hours
     "imminent_close":{"hours": 3,  "recheck_hours": 1}, # single match within this many hours
     "failed":        {"recheck_hours": 1, "max_recheck_hours": 8}  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h
@@ -101,6 +103,8 @@ FETCH_THRESHOLDS = {
 ```
 
 Each team is re-fetched at different rates depending on how soon their next match is, so the program avoids unnecessary API calls when games are far away, but checks often when matches are approaching. As a special case, if only one match is found the program applies stricter refresh rates: every `imminent.recheck_hours` when the match is within the `imminent` window, and every `imminent_close.recheck_hours` when it is within the closer `imminent_close` window.
+
+When a team has no upcoming match, it is checked every `unknown.recheck_hours` for the first `unknown.grace_days`. That covers the gap between playoff rounds, when the next game is not announced yet, and a tennis player waiting for the next round or draw. After that, each empty result doubles the wait, up to `unknown.max_recheck_hours`: 12h for players, because a tennis draw can come out less than a day before round 1, and 48h for teams in their off-season. A fetch that finds a match resets this.
 
 A failed fetch (a timeout, an unreadable response, or a Calendar error) is not treated as "no matches". The team is retried after `failed.recheck_hours`, and the wait doubles for each failure in a row up to `failed.max_recheck_hours`, so one broken team cannot use the daily API budget. A successful fetch returns the team to its normal schedule. An error for one team is logged and does not stop the service or the other teams.
 
