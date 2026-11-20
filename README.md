@@ -186,7 +186,8 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 
 - `.github/workflows/tests.yml` runs the test suite on every pull request. A ruleset on `main` makes its `test` check required before a merge.
 - `.github/workflows/deploy.yml` runs on every push to `main`, or by hand (Actions → "Deploy to Oracle VM" → Run workflow, on `main`), for example after you change the `QUERIES_JSON_B64` secret. It calls the same test workflow first and deploys to the Oracle VM only if the tests pass. It does not upgrade system packages: `unattended-upgrades` on the VM installs security updates daily.
-- On a restart (each deploy, a reboot), systemd stops the service with SIGTERM. The script catches it and exits with code 0, so systemd logs a clean stop and not a failure.
+- The systemd unit is versioned in `deploy/sports-calendar.service`. Each deploy installs it to `/etc/systemd/system/` and runs `daemon-reload` before the restart, so change the unit in the repo, not on the VM.
+- On a restart (each deploy, a reboot), systemd stops the service with SIGTERM. The unit sets `KillMode=mixed`, so only `uv` gets the signal and passes it on to Python, which catches it and exits with code 0: systemd logs a clean stop, not a failure. With the default kill mode, Python and `uv` both get SIGTERM at the same moment, and `uv` exits 143 even when Python exits 0.
 
 ---
 
