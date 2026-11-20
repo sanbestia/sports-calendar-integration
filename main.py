@@ -1,5 +1,6 @@
 import os
 import json
+import subprocess
 import logging
 import argparse
 import datetime
@@ -22,7 +23,7 @@ from objects.AllSportsClient import AllSportsClient
 from objects.FetchTracker import FetchTracker
 from objects.FetchHistory import FetchHistory
 from objects.Clock import Clock
-from config import MAIN_LOOP_SLEEP_MINUTES
+from config import MAIN_LOOP_SLEEP_MINUTES, API_CALL_CEILING
 
 logger = logging.getLogger(__name__)
 
@@ -186,11 +187,41 @@ def run_cycle(queries: dict, deps: LoopDeps) -> int:
     return fetched
 
 
+def _log_daily_summary(deps: LoopDeps, day: datetime.date) -> None:
+    """Log one line with a finished day's totals: API calls (api_calls.db) and fetches and changes (fetch_history).
+
+    The numbers come from the databases, so a restart during the day does not reset them.
+    """
+    try:
+        calls = deps.api_tracker.calls_on(day)
+        totals = deps.history.day_summary(day)
+    except Exception as e:
+        logger.warning(f"Could not build the daily summary for {day}: {e}")
+        return
+    over = calls > API_CALL_CEILING
+    logger.log(
+        logging.WARNING if over else logging.INFO,
+        f"Daily summary for {day}: {calls} API calls"
+        f"{f' (above the {API_CALL_CEILING}-call ceiling)' if over else ''}; "
+        f"{totals['fetches']} fetches ({totals['with_matches']} with matches, {totals['empty']} empty, {totals['failed']} failed); "
+        f"events: {totals['created']} created, {totals['updated']} updated, {totals['deleted']} deleted"
+    )
+
+
 def run(queries: dict, deps: LoopDeps, max_cycles: int | None = None) -> None:
-    """Run cycles forever (or max_cycles times), waiting MAIN_LOOP_SLEEP_MINUTES after each one."""
+    """Run cycles forever (or max_cycles times), waiting MAIN_LOOP_SLEEP_MINUTES after each one.
+
+    The first cycle of a new day first logs the previous day's summary.
+    """
     sleep_minutes = MAIN_LOOP_SLEEP_MINUTES
     cycles = 0
+    summary_day = deps.clock.today()
     while max_cycles is None or cycles < max_cycles:
+        today = deps.clock.today()
+        if today != summary_day:
+            _log_daily_summary(deps, summary_day)
+            summary_day = today
+
         fetched = run_cycle(queries, deps)
         cycles += 1
 
@@ -201,6 +232,16 @@ def run(queries: dict, deps: LoopDeps, max_cycles: int | None = None) -> None:
         wait(deadline, deps.clock)
 
 
+def current_version(run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> str:
+    """Return the short git commit of the running code, or 'unknown' (e.g. a copy without .git)."""
+    try:
+        result = run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True, timeout=5,
+                     cwd=os.path.dirname(os.path.abspath(__file__)))
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
 def main(argv: list[str] | None = None) -> None:
     """Composition root: parse args, build the real collaborators, and run the loop forever.
 
@@ -208,6 +249,7 @@ def main(argv: list[str] | None = None) -> None:
     real connections; everything below it receives its collaborators.
     """
     configure_logging()
+    logger.info(f"Starting sports-calendar {current_version()}")
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="Sports Calendar Integration")

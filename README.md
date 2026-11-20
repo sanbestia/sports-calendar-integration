@@ -108,7 +108,7 @@ When a team has no upcoming match, it is checked every `unknown.recheck_hours` f
 
 A failed fetch (a timeout, an unreadable response, or a Calendar error) is not treated as "no matches". The team is retried after `failed.recheck_hours`, and the wait doubles for each failure in a row up to `failed.max_recheck_hours`, so one broken team cannot use the daily API budget. A successful fetch returns the team to its normal schedule. An error for one team is logged and does not stop the service or the other teams.
 
-The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit). Normal use should not often go above 70 calls per day, which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the ceiling when you change `FETCH_THRESHOLDS` or add teams (`uv run python functions/db_stats.py avg_daily_calls`).
+The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit). Normal use should not often go above 70 calls per day (`API_CALL_CEILING`), which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the ceiling when you change `FETCH_THRESHOLDS` or add teams (`uv run python functions/db_stats.py avg_daily_calls`).
 
 ### Local state files
 
@@ -173,7 +173,7 @@ journalctl -u sports-calendar -f                      # follow the log
 journalctl -u sports-calendar -p warning --since -7d  # only warnings and errors from the last 7 days
 ```
 
-At INFO level you see each fetch, a one-line summary of the matches found, each event created, updated or deleted, and the API call count after a cycle that did work. Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events and skipped teams are logged at DEBUG.
+At INFO level you see the version (git commit) at startup, each fetch, a one-line summary of the matches found, each event created, updated or deleted, the API call count after a cycle that did work, and after midnight a daily summary of the previous day (API calls, fetches by result, event changes; a WARNING when the calls were above `API_CALL_CEILING`). Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events and skipped teams are logged at DEBUG.
 
 ### Running tests
 ```bash

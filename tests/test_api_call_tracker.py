@@ -142,3 +142,17 @@ def test_is_limit_reached_resets_on_new_day():
     result = tracker.is_limit_reached()
 
     assert result is False
+
+def test_calls_on_returns_the_stored_count_of_an_earlier_day():
+    """The daily summary reads yesterday's count after the in-memory counter has reset."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    yesterday = clock.today()
+    for _ in range(3):
+        tracker.increment()
+    clock.advance(days=1)
+    tracker.increment()
+
+    assert tracker.calls_on(yesterday) == 3
+    assert tracker.calls_on(clock.today()) == 1
+    assert tracker.calls_on(yesterday.replace(year=2000)) == 0
