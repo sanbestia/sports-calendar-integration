@@ -1,5 +1,6 @@
 import logging
 import random
+from dataclasses import dataclass
 from googleapiclient.discovery import Resource
 from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta
@@ -72,8 +73,17 @@ def _build_event_body(game: Match, time_zone: str, updated_at: datetime) -> dict
     }
 
 
+@dataclass(frozen=True)
+class SyncResult:
+    """What one update_events call did: the team's events left in the calendar, and the changes it made."""
+    event_count: int
+    created: int = 0
+    updated: int = 0
+    deleted: int = 0
+
+
 def update_events(service: Resource, calendar_id: str, game_list: list[Match], time_zone: str, team_id: str,
-                  clock: Clock | None = None) -> int:
+                  clock: Clock | None = None) -> SyncResult:
     """Sync a list of matches to Google Calendar: create new events, update changed ones, and delete orphans."""
     clock = clock or Clock()
     now = clock.now()
@@ -107,6 +117,8 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
             logger.warning(f"Skipping event '{sanitize_for_log(event.get('summary', 'unknown'))}' — no game_id in extendedProperties")
 
     newly_created = 0
+    updated = 0
+    deleted = 0
 
     for game in game_list:
         event = existing_by_game_id.get(str(game.game_id))
@@ -132,6 +144,7 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
                     body=event_to_update
                 ), clock)
                 logger.info(f'Event updated: {sanitize_for_log(str(updated_event.get("summary", "")))} — {sanitize_for_log(str(updated_event.get("htmlLink", "")))}')
+                updated += 1
             else:
                 logger.debug(f"'{sanitize_for_log(event['summary'])}' already up to date")
         else:
@@ -167,6 +180,7 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
             try:
                 _execute_with_retry(service.events().delete(calendarId=calendar_id, eventId=event["id"]), clock)
                 logger.info(f"Deleted cancelled/orphaned event: '{sanitize_for_log(event.get('summary', ''))}'")
+                deleted += 1
             except HttpError as error:
                 logger.error(f"Error deleting event '{sanitize_for_log(event.get('summary', ''))}': {error}")
 
@@ -176,4 +190,4 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
         if event.get("extendedProperties", {}).get("private", {}).get("game_id") in matched_event_ids
     )
 
-    return team_event_count + newly_created
+    return SyncResult(team_event_count + newly_created, created=newly_created, updated=updated, deleted=deleted)

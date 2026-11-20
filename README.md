@@ -112,7 +112,7 @@ The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit)
 
 ### Local state files
 
-On first run, the program automatically creates two SQLite database files in the working directory: `api_calls.db` to track your daily API usage, and `fetch_log.db` to remember when each team was last fetched. These are managed automatically and you don't need to touch them.
+On first run, the program automatically creates two SQLite database files in the working directory: `api_calls.db` to track your daily API usage, and `fetch_log.db` to remember when each team was last fetched. `fetch_log.db` also holds `fetch_history`, one row per fetch: when, which team, the result (`matches`, `empty` or `failed`), the API calls it used, the matches found, the events created, updated and deleted, and a short error text. These are managed automatically and you don't need to touch them.
 
 ---
 
@@ -199,6 +199,7 @@ uv run python functions/db_stats.py                        # list all available 
 uv run python functions/db_stats.py calls_today
 uv run python functions/db_stats.py stale_teams 24
 uv run python functions/db_stats.py calls_in_range 2026-01-01 2026-01-31
+uv run python functions/db_stats.py calls_per_entity 7      # API calls per team over the last 7 days
 ```
 
 **As a module** — import directly in a Python script or notebook:
@@ -209,6 +210,7 @@ from functions.db_stats import (
     busiest_days, calls_per_period, api_budget_forecast,
     all_calls_df, all_fetches_df, fetch_gap_df,
     teams_due_now, teams_with_no_upcoming_match, stale_teams,
+    calls_per_entity, outcomes_per_entity, recent_failures,
 )
 
 # Examples
@@ -221,6 +223,9 @@ calls_per_period("ME")               # monthly totals (DataFrame)
 api_budget_forecast()                # projected end-of-day total based on current rate
 teams_due_now()                      # teams the scheduler would fetch right now
 stale_teams(hours=48)                # teams not fetched in over 48 hours (DataFrame)
+calls_per_entity(7)                  # API calls and fetches per team, last 7 days (DataFrame)
+outcomes_per_entity(30)              # matches / empty / failed fetches per team, last 30 days (DataFrame)
+recent_failures(7)                   # failed fetches with their error, newest first (DataFrame)
 ```
 
 Functions that return datetimes, percentages, or floats format their output for readability by default (datetimes as `DD-MM-YYYY HH:MM:SS +00:00`, percentages with `%`, floats rounded to 2 decimal places). Pass `raw=True` to get native Python types for programmatic use:

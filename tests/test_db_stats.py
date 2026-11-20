@@ -5,7 +5,12 @@ from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import pytest
 
+from objects.Clock import Clock
+from objects.FetchHistory import FetchHistory
 from functions.db_stats import (
+    calls_per_entity,
+    outcomes_per_entity,
+    recent_failures,
     all_calls_df,
     all_fetches_df,
     api_budget_forecast,
@@ -574,3 +579,57 @@ def test_cli_rejects_badly_typed_param(caplog):
     """A value that does not convert to the declared type exits 1."""
     assert run_cli("calls_on", "not-a-date") == 1
     assert "Bad value for 'day'" in caplog.text
+
+
+# ============================================================
+# fetch_history queries
+# ============================================================
+
+@pytest.fixture
+def history_db(tmp_path):
+    """fetch_log.db with history rows for today and two rows from 30 days ago."""
+    db_path = str(tmp_path / "fetch_log.db")
+    history = FetchHistory(db_path=db_path, clock=Clock())  # db_stats windows are relative to the real date
+    history.record("Lakers", "team", "matches", api_calls=3, matches=64, created=1)
+    history.record("Lakers", "team", "matches", api_calls=3, matches=64)
+    history.record("Fever", "team", "empty", api_calls=2)
+    history.record("Sinner", "player", "failed", api_calls=1, error="Couldn't communicate with sports API")
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        old_day = (date.today() - timedelta(days=30)).isoformat()
+        conn.execute("UPDATE fetch_history SET day = ? WHERE entity = 'Fever'", (old_day,))
+        conn.execute("INSERT INTO fetch_history (fetched_at, day, entity, player_type, outcome, api_calls) VALUES ('2000-01-01', ?, 'Old', 'team', 'empty', 9)", (old_day,))
+    return db_path
+
+
+def test_calls_per_entity_sums_calls_in_the_window(history_db):
+    """Only rows in the last N days count; the entity with most calls comes first."""
+    result = calls_per_entity(7, history_db)
+
+    assert result.to_dict("records") == [
+        {"entity": "Lakers", "fetches": 2, "api_calls": 6, "calls_per_day": 0.86},
+        {"entity": "Sinner", "fetches": 1, "api_calls": 1, "calls_per_day": 0.14},
+    ]
+
+
+def test_outcomes_per_entity_counts_each_outcome(history_db):
+    result = outcomes_per_entity(7, history_db).set_index("entity")
+
+    assert result.loc["Lakers"].to_dict() == {"matches": 2, "empty": 0, "failed": 0}
+    assert result.loc["Sinner"].to_dict() == {"matches": 0, "empty": 0, "failed": 1}
+
+
+def test_recent_failures_lists_failed_fetches_with_their_error(history_db):
+    result = recent_failures(7, history_db)
+
+    assert result[["entity", "error"]].to_dict("records") == [{"entity": "Sinner", "error": "Couldn't communicate with sports API"}]
+
+
+def test_history_queries_work_before_the_table_exists(tmp_path):
+    """On a fetch_log.db from before fetch_history, the queries return empty tables instead of failing."""
+    db_path = str(tmp_path / "fetch_log.db")
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("CREATE TABLE fetch_log (team_name TEXT PRIMARY KEY)")
+
+    assert calls_per_entity(7, db_path).empty
+    assert outcomes_per_entity(7, db_path).empty
+    assert recent_failures(7, db_path).empty

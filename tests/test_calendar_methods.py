@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 from googleapiclient.errors import HttpError
 from objects.Match import Match
-from functions.calendar_methods import update_events, _build_event_body
+from functions.calendar_methods import update_events, _build_event_body, SyncResult
 from tests.fakes import FakeClock
 
 
@@ -76,7 +76,7 @@ def test_skips_event_missing_extended_properties():
     )
 
     mock_service.events().insert.assert_called_once()
-    assert result == 1
+    assert result.event_count == 1
 
 
 def test_creates_new_event_when_no_existing():
@@ -93,7 +93,7 @@ def test_creates_new_event_when_no_existing():
     )
 
     mock_service.events().insert.assert_called_once()
-    assert result == 1
+    assert result.event_count == 1
 
 
 def test_does_not_create_event_when_already_exists_and_unchanged():
@@ -112,7 +112,7 @@ def test_does_not_create_event_when_already_exists_and_unchanged():
 
     mock_service.events().insert.assert_not_called()
     mock_service.events().update.assert_not_called()
-    assert result == 1
+    assert result.event_count == 1
 
 
 def test_updates_event_when_start_time_changed():
@@ -134,7 +134,7 @@ def test_updates_event_when_start_time_changed():
 
     mock_service.events().update.assert_called_once()
     mock_service.events().insert.assert_not_called()
-    assert result == 1
+    assert result.event_count == 1
 
 
 def test_updates_event_when_team_name_changed():
@@ -153,7 +153,7 @@ def test_updates_event_when_team_name_changed():
 
     mock_service.events().update.assert_called_once()
     mock_service.events().insert.assert_not_called()
-    assert result == 1
+    assert result.event_count == 1
 
 
 def test_updates_event_when_team_ids_missing():
@@ -174,7 +174,7 @@ def test_updates_event_when_team_ids_missing():
 
     mock_service.events().update.assert_called_once()
     mock_service.events().insert.assert_not_called()
-    assert result == 1
+    assert result.event_count == 1
 
 
 def test_handles_multiple_matches():
@@ -192,7 +192,7 @@ def test_handles_multiple_matches():
     )
 
     assert mock_service.events().insert.call_count == 2
-    assert result == 2
+    assert result.event_count == 2
 
 
 def test_returns_correct_count_with_multiple_existing_events():
@@ -210,7 +210,7 @@ def test_returns_correct_count_with_multiple_existing_events():
         team_id="h1"
     )
 
-    assert result == 1
+    assert result.event_count == 1
 
 
 # --- orphan deletion tests ---
@@ -336,7 +336,7 @@ def test_reads_every_page_of_existing_events():
 
     mock_service.events().insert.assert_not_called()
     assert mock_service.events().list.call_args.kwargs["pageToken"] == "page-2"
-    assert result == 2
+    assert result.event_count == 2
 
 
 def test_continues_and_does_not_count_when_insert_fails(caplog):
@@ -349,7 +349,7 @@ def test_continues_and_does_not_count_when_insert_fails(caplog):
         game_list=[make_match(game_id="1"), make_match(game_id="2")],
     )
 
-    assert result == 1
+    assert result.event_count == 1
     assert "An error occurred" in caplog.text
 
 
@@ -364,7 +364,7 @@ def test_continues_when_delete_fails(caplog):
         game_list=[make_match(game_id="123")],
     )
 
-    assert result == 1  # the new match is created; the orphan is not counted
+    assert result.event_count == 1  # the new match is created; the orphan is not counted
     assert "Error deleting event" in caplog.text
 
 
@@ -381,7 +381,7 @@ def test_count_excludes_deleted_orphan():
     )
 
     mock_service.events().delete.assert_called_with(calendarId="cal", eventId="orphan_event_id")
-    assert result == 1
+    assert result.event_count == 1
 
 
 def test_update_keeps_fields_not_in_event_body():
@@ -490,3 +490,21 @@ def test_update_events_uses_clock_for_lookback_window():
                   game_list=[make_match()], clock=clock)
 
     assert mock_service.events().list.call_args.kwargs["timeMin"] == "2026-01-15T00:00:00+00:00"
+
+
+def test_reports_what_it_created_updated_and_deleted():
+    """The result counts each change, so the fetch history can show how often schedules really change."""
+    moved = make_existing_event(game_id="1")
+    moved["id"] = "moved_event_id"
+    orphan = make_existing_event(game_id="999")
+    orphan["id"] = "orphan_event_id"
+    mock_service = make_mock_service([moved, orphan])
+    mock_service.events().get().execute.return_value = moved
+    games = [
+        make_match(game_id="1", start_time=FUTURE_START_TIME + datetime.timedelta(hours=2)),  # rescheduled
+        make_match(game_id="2"),                                                              # new
+    ]
+
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=games)
+
+    assert result == SyncResult(event_count=2, created=1, updated=1, deleted=1)

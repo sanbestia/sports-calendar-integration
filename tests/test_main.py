@@ -3,6 +3,7 @@ import json
 import datetime
 from unittest.mock import MagicMock
 from config import MAIN_LOOP_SLEEP_MINUTES
+from functions.calendar_methods import SyncResult
 from main import load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection
 from tests.fakes import FakeClock, FakeSession, ScriptedInput, make_client
 
@@ -140,15 +141,17 @@ def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_r
     fetch_tracker.should_fetch.return_value = should_fetch
     fetch_tracker.hours_until_next_fetch.return_value = 3.0
     service_iter = iter(services if services is not None else [MagicMock()])
+    sync_results = [SyncResult(event_count=r) if isinstance(r, int) else r for r in sync_side_effect]
     return LoopDeps(
-        client=MagicMock(),
+        client=MagicMock(calls_made=0),
         api_tracker=api_tracker,
         fetch_tracker=fetch_tracker,
+        history=MagicMock(),
         calendar=CalendarConnection(lambda: next(service_iter)),
         clock=FakeClock(),
         tz=datetime.timezone.utc,
         fetch_matches=MagicMock(return_value=None if fetch_fails else [make_fake_match(EARLY)] if matches is None else matches),
-        sync_events=MagicMock(side_effect=list(sync_side_effect)),
+        sync_events=MagicMock(side_effect=sync_results),
     )
 
 
@@ -303,3 +306,70 @@ def test_status_line_only_after_a_cycle_that_did_work(caplog, should_fetch, logg
     run(ALCARAZ_QUERIES, deps, max_cycles=1)
 
     assert ("API calls today: 1/100 · next cycle at" in caplog.text) is logged
+
+
+
+# --- fetch history ---
+
+def history_row(deps) -> dict:
+    """The single history.record call, as {field: value} (positional fields named)."""
+    (call,) = deps.history.record.call_args_list
+    entity, player_type, outcome = call.args
+    return {"entity": entity, "player_type": player_type, "outcome": outcome, **call.kwargs}
+
+
+def test_history_records_a_fetch_with_matches_and_its_changes():
+    """A fetch that found matches records their count and the calendar changes."""
+    deps = make_deps(matches=[make_fake_match(LATE), make_fake_match(EARLY)],
+                     sync_side_effect=(SyncResult(event_count=2, created=1, updated=1, deleted=0),))
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    assert history_row(deps) == {"entity": "Carlos Alcaraz", "player_type": "player", "outcome": "matches", "api_calls": 0,
+                                 "matches": 2, "created": 1, "updated": 1, "deleted": 0, "error": None}
+
+
+def test_history_records_the_api_calls_the_fetch_used():
+    """api_calls is the client's call count after the fetch minus before it."""
+    deps = make_deps()
+
+    def fetch_using_three_calls(client, **kwargs):
+        client.calls_made += 3
+        return [make_fake_match(EARLY)]
+    deps.fetch_matches = MagicMock(side_effect=fetch_using_three_calls)
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    assert history_row(deps)["api_calls"] == 3
+
+
+def test_history_records_an_empty_schedule():
+    deps = make_deps(matches=[])
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    assert history_row(deps)["outcome"] == "empty"
+
+
+def test_history_records_a_failed_fetch():
+    deps = make_deps(fetch_fails=True)
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    row = history_row(deps)
+    assert (row["outcome"], row["error"]) == ("failed", "fetch failed (see the log)")
+
+
+def test_history_records_an_unexpected_error_with_its_type():
+    deps = make_deps(sync_side_effect=(KeyError("handball"),))
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    row = history_row(deps)
+    assert (row["outcome"], row["error"]) == ("failed", "KeyError: 'handball'")
+
+
+def test_a_failed_history_write_does_not_turn_a_good_fetch_into_a_failure(caplog):
+    """The history is a record, not part of the sync: a write error is a warning, and the fetch stays a success."""
+    deps = make_deps(sync_side_effect=(1, 1))
+    deps.history.record.side_effect = OSError("disk full")
+    run_cycle(TWO_ENTITY_QUERIES, deps)
+
+    assert deps.fetch_tracker.record_fetch.call_count == 2
+    deps.fetch_tracker.record_failure.assert_not_called()
+    assert "Could not write fetch history for 'Carlos Alcaraz': disk full" in caplog.text
