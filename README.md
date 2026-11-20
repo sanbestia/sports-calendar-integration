@@ -164,6 +164,17 @@ uv run python main.py
 
 You will be prompted to enter team/player names, select from results, and provide calendar IDs. This uses the same search flow as `get_ids` but feeds directly into the main loop.
 
+### Reading the logs
+
+The script logs to stderr. Under systemd the lines go to journald, and each line carries its syslog priority, so you can filter by level:
+
+```bash
+journalctl -u sports-calendar -f                      # follow the log
+journalctl -u sports-calendar -p warning --since -7d  # only warnings and errors from the last 7 days
+```
+
+At INFO level you see each fetch, a one-line summary of the matches found, each event created, updated or deleted, and the API call count after a cycle that did work. Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events and skipped teams are logged at DEBUG.
+
 ### Running tests
 ```bash
 uv run pytest -v

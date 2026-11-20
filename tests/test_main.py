@@ -278,3 +278,28 @@ def test_run_waits_between_cycles():
 
     assert deps.fetch_matches.call_count == 2
     assert deps.clock.now() - start >= datetime.timedelta(minutes=2 * MAIN_LOOP_SLEEP_MINUTES)
+
+
+# --- what the loop logs at INFO ---
+
+def test_skipped_entities_are_not_logged_at_info(caplog):
+    """'Skipping' lines are debug: they were ~40% of all journal lines, every 5 minutes."""
+    deps = make_deps(should_fetch=False)
+
+    assert run_cycle(ALCARAZ_QUERIES, deps) == 0
+    assert "Skipping" not in caplog.text
+
+
+def test_run_cycle_returns_how_many_entities_it_fetched():
+    """The count lets run() decide whether the cycle is worth a status line."""
+    deps = make_deps()
+    assert run_cycle(TWO_ENTITY_QUERIES, deps) == 2
+
+
+@pytest.mark.parametrize("should_fetch, logged", [(True, True), (False, False)])
+def test_status_line_only_after_a_cycle_that_did_work(caplog, should_fetch, logged):
+    """The 'API calls today' line is INFO after a cycle that fetched, and debug after a cycle that only skipped."""
+    deps = make_deps(should_fetch=should_fetch)
+    run(ALCARAZ_QUERIES, deps, max_cycles=1)
+
+    assert ("API calls today: 1/100 · next cycle at" in caplog.text) is logged
