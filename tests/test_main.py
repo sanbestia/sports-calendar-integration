@@ -4,7 +4,8 @@ import datetime
 from unittest.mock import MagicMock
 from config import MAIN_LOOP_SLEEP_MINUTES
 from functions.calendar_methods import SyncResult
-from main import load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version
+from main import load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version, install_stop_handler
+import signal
 import subprocess
 from config import API_CALL_CEILING
 from tests.fakes import FakeClock, FakeSession, ScriptedInput, make_client
@@ -438,3 +439,26 @@ def test_current_version_is_unknown_without_git(failure):
     def failing_git(*args, **kwargs):
         raise failure
     assert current_version(run=failing_git) == "unknown"
+
+
+# --- clean stop on SIGTERM ---
+
+
+def test_installs_a_sigterm_handler():
+    """systemd stops the service with SIGTERM on every deploy, reboot and restart."""
+    registered = {}
+    install_stop_handler(register=lambda signum, handler: registered.setdefault(signum, handler))
+
+    assert list(registered) == [signal.SIGTERM]
+
+
+def test_sigterm_handler_exits_with_code_0(caplog):
+    """Exit code 0 means systemd logs a clean stop, not 'Failed with result exit-code' (status 143)."""
+    registered = {}
+    install_stop_handler(register=lambda signum, handler: registered.setdefault(signum, handler))
+
+    with pytest.raises(SystemExit) as stop:
+        registered[signal.SIGTERM](signal.SIGTERM, None)
+
+    assert stop.value.code == 0
+    assert "Stopping: received SIGTERM" in caplog.text
