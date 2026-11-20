@@ -1,5 +1,6 @@
 import os
 import json
+import signal
 import subprocess
 import logging
 import argparse
@@ -242,6 +243,21 @@ def current_version(run: Callable[..., subprocess.CompletedProcess] = subprocess
     return result.stdout.strip() or "unknown"
 
 
+def install_stop_handler(register: Callable = signal.signal) -> None:
+    """On SIGTERM (systemd's stop signal for deploys, restarts and reboots), log it and exit with code 0.
+
+    Without a handler Python dies from the signal, `uv run` exits 143 (128 + 15), and systemd logs every
+    deploy as "Failed with result 'exit-code'" at warning priority. A real crash still exits non-zero, so
+    Restart=on-failure still restarts it. SystemExit is not an Exception, so run_cycle's handler lets it through,
+    and an open SQLite transaction is rolled back.
+    """
+    def stop(signum: int, frame) -> None:
+        logger.info("Stopping: received SIGTERM")
+        raise SystemExit(0)
+
+    register(signal.SIGTERM, stop)
+
+
 def main(argv: list[str] | None = None) -> None:
     """Composition root: parse args, build the real collaborators, and run the loop forever.
 
@@ -249,6 +265,7 @@ def main(argv: list[str] | None = None) -> None:
     real connections; everything below it receives its collaborators.
     """
     configure_logging()
+    install_stop_handler()
     logger.info(f"Starting sports-calendar {current_version()}")
     load_dotenv()
 

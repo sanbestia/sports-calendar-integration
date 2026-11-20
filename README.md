@@ -185,7 +185,8 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 ### Continuous integration
 
 - `.github/workflows/tests.yml` runs the test suite on every pull request. A ruleset on `main` makes its `test` check required before a merge.
-- `.github/workflows/deploy.yml` runs on every push to `main`. It calls the same test workflow first and deploys to the Oracle VM only if the tests pass.
+- `.github/workflows/deploy.yml` runs on every push to `main`, or by hand (Actions → "Deploy to Oracle VM" → Run workflow, on `main`), for example after you change the `QUERIES_JSON_B64` secret. It calls the same test workflow first and deploys to the Oracle VM only if the tests pass. It does not upgrade system packages: `unattended-upgrades` on the VM installs security updates daily.
+- On a restart (each deploy, a reboot), systemd stops the service with SIGTERM. The script catches it and exits with code 0, so systemd logs a clean stop and not a failure.
 
 ---
 
