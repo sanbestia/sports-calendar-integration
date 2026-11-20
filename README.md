@@ -95,11 +95,14 @@ FETCH_THRESHOLDS = {
     "near":          {"days": 0,  "recheck_hours": 12},   # next match is within 3 days
     "unknown":       {"recheck_hours": 8},               # no upcoming match found
     "imminent":      {"hours": 24, "recheck_hours": 4},  # single match within this many hours
-    "imminent_close":{"hours": 3,  "recheck_hours": 1} # single match within this many hours
+    "imminent_close":{"hours": 3,  "recheck_hours": 1}, # single match within this many hours
+    "failed":        {"recheck_hours": 1, "max_recheck_hours": 8}  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h
 }
 ```
 
 Each team is re-fetched at different rates depending on how soon their next match is, so the program avoids unnecessary API calls when games are far away, but checks often when matches are approaching. As a special case, if only one match is found the program applies stricter refresh rates: every `imminent.recheck_hours` when the match is within the `imminent` window, and every `imminent_close.recheck_hours` when it is within the closer `imminent_close` window.
+
+A failed fetch (a timeout, an unreadable response, or a Calendar error) is not treated as "no matches". The team is retried after `failed.recheck_hours`, and the wait doubles for each failure in a row up to `failed.max_recheck_hours`, so one broken team cannot use the daily API budget. A successful fetch returns the team to its normal schedule. An error for one team is logged and does not stop the service or the other teams.
 
 ### Local state files
 

@@ -79,20 +79,20 @@ def test_falls_back_to_near_endpoint():
     assert result[0].game_id == "1"
 
 
-def test_returns_empty_list_on_connection_error():
-    """Returns empty list gracefully when a network error occurs."""
+def test_returns_none_on_connection_error():
+    """Returns None gracefully when a network error occurs."""
     session = FakeSession(requests.exceptions.ConnectionError)
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
-def test_returns_empty_list_on_timeout():
-    """Returns empty list gracefully when a timeout occurs."""
+def test_returns_none_on_timeout():
+    """Returns None gracefully when a timeout occurs."""
     session = FakeSession(requests.exceptions.Timeout)
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
 def test_match_sport_is_set_correctly():
@@ -127,37 +127,37 @@ def test_no_round_info_uses_tournament_name():
     assert result[0].stage == "ATP Ultra Finals, Mars"
 
 
-def test_returns_empty_list_on_empty_near_response():
-    """Returns empty list when 'near' endpoint returns an empty response."""
+def test_returns_none_on_empty_near_response():
+    """Returns None when 'near' endpoint returns an empty response."""
     session = FakeSession(
         "",
         ""
     )
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
-def test_returns_empty_list_on_invalid_json_in_pagination():
-    """Returns empty list when a paginated response contains invalid JSON."""
+def test_returns_none_on_invalid_json_in_pagination():
+    """Returns None when a paginated response contains invalid JSON."""
     session = FakeSession(
         FAKE_NEXT_RESPONSE_PAGE_1,
         INVALID_JSON
     )
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
-def test_returns_empty_list_on_invalid_json_from_near_endpoint():
-    """Returns empty list when 'near' endpoint returns invalid JSON."""
+def test_returns_none_on_invalid_json_from_near_endpoint():
+    """Returns None when 'near' endpoint returns invalid JSON."""
     session = FakeSession(
         "",
         INVALID_JSON
     )
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
 def test_increments_tracker_on_successful_request():
@@ -178,12 +178,12 @@ def test_does_not_increment_tracker_on_connection_error():
     mock_tracker.increment.assert_not_called()
 
 
-def test_returns_empty_list_on_invalid_response_structure():
-    """Returns empty list when API response has valid JSON but unexpected structure."""
+def test_returns_none_on_invalid_response_structure():
+    """Returns None when API response has valid JSON but unexpected structure."""
     session = FakeSession({"unexpected_key": "unexpected_value"})
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
 def test_skips_cancelled_matches():
@@ -203,31 +203,31 @@ def test_includes_notstarted_matches():
     assert len(result) == 1
 
 
-def test_near_endpoint_returns_empty_list_on_invalid_structure(caplog):
-    """Returns empty list and logs an error when the 'near' event fails validation."""
+def test_near_endpoint_returns_none_on_invalid_structure(caplog):
+    """Returns None and logs an error when the 'near' event fails validation."""
     session = FakeSession(
         "",
         {"nextEvent": {"id": 1}}  # event without its required fields
     )
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
     assert "Unexpected response structure from tennis/player/206570/events/near" in caplog.text
 
-def test_returns_empty_list_on_empty_later_page():
+def test_returns_none_on_empty_later_page():
     """An empty body after page 0 is an error, so the partial result is dropped."""
     session = FakeSession(FAKE_NEXT_RESPONSE_PAGE_1, "")
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
-def test_returns_empty_list_on_near_connection_error():
+def test_returns_none_on_near_connection_error():
     """A connection error on the 'near' fallback returns an empty list."""
     session = FakeSession("", requests.exceptions.ConnectionError())
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
-    assert result == []
+    assert result is None  # a failed fetch, not an empty schedule
 
 
 def test_near_endpoint_accepts_a_list_of_events():

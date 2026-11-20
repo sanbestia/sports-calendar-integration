@@ -61,8 +61,12 @@ def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id
     return [e.model_dump() for e in near.nextEvent]  # convert to dict; same reason as in the paginated path above
 
 
-def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, player_type: str, sport: str, time_zone: str) -> list[Match]:
-    """Fetch upcoming matches for a team from the AllSports API and return them as Match objects."""
+def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, player_type: str, sport: str, time_zone: str) -> list[Match] | None:
+    """Fetch upcoming matches for a team from the AllSports API and return them as Match objects.
+
+    Returns [] when the team has no upcoming matches, and None when the fetch failed, so callers can retry
+    a failure soon instead of treating it as an empty schedule.
+    """
     logger.info(f"Looking for games featuring {sanitize_for_log(team_name)}...")
     logger.info("")
 
@@ -70,7 +74,7 @@ def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, play
         events = _fetch_events(client, sport, player_type, team_id)
     except AllSportsError as e:
         logger.error(f"Couldn't get matches for {sanitize_for_log(team_name)}: {e}")
-        return []
+        return None
 
     if not events:
         return []

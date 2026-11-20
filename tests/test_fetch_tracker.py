@@ -1,7 +1,11 @@
+import sqlite3
+from contextlib import closing
+
 import pytest
 from datetime import datetime, timezone, timedelta
 from objects.FetchTracker import FetchTracker
 from config import FETCH_THRESHOLDS
+from tests.fakes import FakeClock
 
 
 # --- Helpers ---
@@ -9,9 +13,9 @@ from config import FETCH_THRESHOLDS
 _created_trackers: list[FetchTracker] = []
 
 
-def make_tracker(db_path: str = ":memory:") -> FetchTracker:
+def make_tracker(db_path: str = ":memory:", clock=None) -> FetchTracker:
     """Create a tracker (in-memory SQLite by default); it is closed after the test."""
-    tracker = FetchTracker(db_path=db_path)
+    tracker = FetchTracker(db_path=db_path, clock=clock)
     _created_trackers.append(tracker)
     return tracker
 
@@ -351,3 +355,99 @@ def test_fetch_log_survives_restart(tmp_path):
     restarted = make_tracker(db_path)
 
     assert restarted.should_fetch("Carlos Alcaraz") is False
+
+
+# --- failed fetches ---
+
+FAILED_HOURS = FETCH_THRESHOLDS["failed"]["recheck_hours"]
+FAILED_MAX_HOURS = FETCH_THRESHOLDS["failed"]["max_recheck_hours"]
+
+
+def test_failed_fetch_is_retried_after_the_failed_interval():
+    """A failure overrides the normal schedule: the entity is due again after the short 'failed' interval."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    tracker.record_fetch("Lakers", clock.now() + timedelta(days=10), 66)  # far match: normally 48h
+    clock.advance(hours=FETCH_THRESHOLDS["far"]["recheck_hours"])  # due again
+    tracker.record_failure("Lakers")
+
+    assert tracker.should_fetch("Lakers") is False
+    assert tracker.hours_until_next_fetch("Lakers") == pytest.approx(FAILED_HOURS)
+    clock.advance(hours=FAILED_HOURS)
+    assert tracker.should_fetch("Lakers") is True
+
+
+def test_failure_keeps_the_last_known_schedule():
+    """A failure does not erase the next match and count that the last successful fetch found."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    next_match = clock.now() + timedelta(days=10)
+    tracker.record_fetch("Lakers", next_match, 66)
+    tracker.record_failure("Lakers")
+
+    with tracker._connect() as conn:
+        row = conn.execute("SELECT next_match, match_count FROM fetch_log WHERE team_name = 'Lakers'").fetchone()
+    assert row == (next_match.isoformat(), 66)
+
+
+def test_success_after_failure_returns_to_normal_schedule():
+    """The next successful fetch clears the failure, so the normal interval applies again."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    tracker.record_failure("Lakers")
+    tracker.record_fetch("Lakers", clock.now() + timedelta(days=10), 66)
+
+    assert tracker.hours_until_next_fetch("Lakers") == pytest.approx(FETCH_THRESHOLDS["far"]["recheck_hours"])
+
+
+def test_first_fetch_that_fails_is_retried_after_the_failed_interval():
+    """An entity whose very first fetch fails is not retried every cycle, only after the 'failed' interval."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    tracker.record_failure("New Team")
+
+    assert tracker.should_fetch("New Team") is False
+    clock.advance(hours=FAILED_HOURS)
+    assert tracker.should_fetch("New Team") is True
+
+
+def test_adds_failure_column_to_an_existing_database(tmp_path):
+    """A fetch_log.db created before failures were tracked gets the new column and keeps its rows."""
+    db_path = str(tmp_path / "fetch_log.db")
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("CREATE TABLE fetch_log (team_name TEXT PRIMARY KEY, last_fetched TEXT NOT NULL, next_match TEXT, match_count INTEGER NOT NULL DEFAULT 0)")
+        conn.execute("INSERT INTO fetch_log VALUES ('Lakers', ?, NULL, 0)", (datetime.now(timezone.utc).isoformat(),))
+
+    tracker = make_tracker(db_path)
+    tracker.record_failure("Lakers")
+    tracker.record_failure("Lakers")
+
+    assert tracker.should_fetch("Lakers") is False
+    assert tracker.hours_until_next_fetch("Lakers") == pytest.approx(2 * FAILED_HOURS, abs=0.01)  # streak of 2
+
+
+def test_repeated_failures_double_the_wait_up_to_the_cap():
+    """Each failure in a row doubles the wait (1h, 2h, 4h, ...) until max_recheck_hours, to protect the daily budget."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    waits = []
+    for _ in range(6):
+        tracker.record_failure("Broken Team")
+        waits.append(tracker.hours_until_next_fetch("Broken Team"))
+        clock.advance(hours=waits[-1])
+
+    expected = [min(FAILED_HOURS * 2 ** n, FAILED_MAX_HOURS) for n in range(6)]
+    assert waits == pytest.approx(expected)
+    assert waits[-1] == FAILED_MAX_HOURS
+
+
+def test_success_resets_the_failure_streak():
+    """After a successful fetch, the next failure starts again at the shortest wait."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    for _ in range(3):
+        tracker.record_failure("Lakers")
+    tracker.record_fetch("Lakers", clock.now() + timedelta(days=10), 66)
+    tracker.record_failure("Lakers")
+
+    assert tracker.hours_until_next_fetch("Lakers") == pytest.approx(FAILED_HOURS)

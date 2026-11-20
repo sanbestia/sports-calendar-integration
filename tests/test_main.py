@@ -131,7 +131,7 @@ def make_fake_match(start_time: datetime.datetime) -> MagicMock:
     return fake_match
 
 
-def make_deps(*, matches=None, sync_side_effect=(1,), limit_reached=False, should_fetch=True, services=None) -> LoopDeps:
+def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_reached=False, should_fetch=True, services=None) -> LoopDeps:
     """Loop dependencies made of mocks and fakes; every collaborator is passed in, nothing is patched."""
     api_tracker = MagicMock(daily_limit=100)
     api_tracker.is_limit_reached.return_value = limit_reached
@@ -147,7 +147,7 @@ def make_deps(*, matches=None, sync_side_effect=(1,), limit_reached=False, shoul
         calendar=CalendarConnection(lambda: next(service_iter)),
         clock=FakeClock(),
         tz=datetime.timezone.utc,
-        fetch_matches=MagicMock(return_value=[make_fake_match(EARLY)] if matches is None else matches),
+        fetch_matches=MagicMock(return_value=None if fetch_fails else [make_fake_match(EARLY)] if matches is None else matches),
         sync_events=MagicMock(side_effect=list(sync_side_effect)),
     )
 
@@ -221,13 +221,52 @@ def test_reconnects_calendar_service_on_broken_pipe():
     deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 1)
 
 
-def test_continues_when_retry_also_fails():
-    """If the retry after reconnecting also fails, the error is logged and the fetch is recorded with 0."""
+def test_records_failure_when_retry_after_reconnect_also_fails():
+    """If the retry after reconnecting also fails, the calendar was not updated, so it is a failure."""
     deps = make_deps(sync_side_effect=(BrokenPipeError, OSError("still down")), services=[MagicMock(), MagicMock()])
     run_cycle(ALCARAZ_QUERIES, deps)
 
     assert deps.sync_events.call_count == 2
-    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 0)
+    deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
+    deps.fetch_tracker.record_fetch.assert_not_called()
+
+
+TWO_ENTITY_QUERIES = {
+    **ALCARAZ_QUERIES,
+    "T1": {"id": "364366", "sport": "esport", "player_type": "team", "calendar": "esports_calendar_id"},
+}
+
+
+def test_records_failure_when_fetch_fails():
+    """A failed fetch (None) is recorded as a failure, not as 'no matches', and the calendar is left alone."""
+    deps = make_deps(fetch_fails=True)
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
+    deps.fetch_tracker.record_fetch.assert_not_called()
+    deps.sync_events.assert_not_called()
+
+
+def test_any_sync_error_is_recorded_and_the_cycle_continues():
+    """An unexpected calendar error (e.g. a sport missing from ICONS) does not stop the service.
+
+    Before, it crashed the process; systemd restarted it, and the same entity was fetched and crashed again.
+    """
+    deps = make_deps(sync_side_effect=(KeyError("handball"), 1))
+    run_cycle(TWO_ENTITY_QUERIES, deps)
+
+    deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
+    deps.fetch_tracker.record_fetch.assert_called_once_with("T1", EARLY, 1)
+
+
+def test_any_fetch_error_is_recorded_and_the_cycle_continues():
+    """An unexpected error while fetching is also recorded as a failure, and the next entity still runs."""
+    deps = make_deps()
+    deps.fetch_matches.side_effect = [ValueError("bad data"), [make_fake_match(EARLY)]]
+    run_cycle(TWO_ENTITY_QUERIES, deps)
+
+    deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
+    deps.fetch_tracker.record_fetch.assert_called_once_with("T1", EARLY, 1)
 
 
 def test_run_waits_between_cycles():
