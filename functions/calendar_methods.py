@@ -78,10 +78,7 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
     clock = clock or Clock()
     now = clock.now()
     updated_at = now.astimezone()  # local time, for the human-readable description
-    logger.info("Updating calendar...")
-
-    logger.info("Looking up future events...")
-    logger.info("")
+    logger.debug("Updating calendar: looking up future events...")
     lookback = now - timedelta(hours=12)  # -12h to catch in-progress games
     time_min = lookback.replace(microsecond=0).isoformat()  # microsecond=0 because GCal API rejects sub-second precision
     existing_events = []
@@ -126,7 +123,7 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
                 or props.get("away_team_id") != game.away_team_id
                 or event.get("summary") != _build_summary(game)
             ):
-                logger.info("Found change in event details. Updating...")
+                logger.debug("Found change in event details. Updating...")
                 event_to_update = _execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event["id"]), clock)  # fetch full event first to preserve fields not in _build_event_body (e.g. attendees)
                 event_to_update.update(_build_event_body(game, time_zone, updated_at))
                 updated_event = _execute_with_retry(service.events().update(
@@ -136,9 +133,9 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
                 ), clock)
                 logger.info(f'Event updated: {sanitize_for_log(str(updated_event.get("summary", "")))} — {sanitize_for_log(str(updated_event.get("htmlLink", "")))}')
             else:
-                logger.info(f"'{sanitize_for_log(event['summary'])}' already up to date")
+                logger.debug(f"'{sanitize_for_log(event['summary'])}' already up to date")
         else:
-            logger.info("New match upcoming! Creating event...")
+            logger.debug("New match upcoming! Creating event...")
             try:
                 created_event = _execute_with_retry(service.events().insert(
                     calendarId=calendar_id,

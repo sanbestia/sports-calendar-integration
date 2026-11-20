@@ -68,7 +68,6 @@ def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, play
     a failure soon instead of treating it as an empty schedule.
     """
     logger.info(f"Looking for games featuring {sanitize_for_log(team_name)}...")
-    logger.info("")
 
     try:
         events = _fetch_events(client, sport, player_type, team_id)
@@ -80,8 +79,6 @@ def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, play
         return []
 
     next_games: list[Match] = []
-    logger.info("Got data:")
-    logger.info("")
     for event in events:
         if event.get('status', {}).get('type') == 'canceled':
             logger.info(f"Skipping cancelled match: {sanitize_for_log(event['homeTeam']['name'])} vs {sanitize_for_log(event['awayTeam']['name'])}")
@@ -102,7 +99,11 @@ def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, play
             away_team_id=event['awayTeam']['id'],
         )
 
-        logger.info(f"{sanitize_for_log(str(game))} ({sanitize_for_log(time_zone)})")
+        logger.debug(f"{sanitize_for_log(str(game))} ({sanitize_for_log(time_zone)})")
         next_games.append(game)
 
+    if next_games:
+        first = min(next_games, key=lambda g: g.start_time)
+        logger.info(f"Found {len(next_games)} upcoming match{'' if len(next_games) == 1 else 'es'}; "
+                    f"next: {sanitize_for_log(str(first))} ({sanitize_for_log(time_zone)})")
     return next_games

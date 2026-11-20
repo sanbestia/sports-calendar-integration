@@ -15,6 +15,7 @@ from functions.check_calendar_tokens import check_calendar_tokens
 from functions.calendar_methods import update_events
 from functions.get_next_matches import get_next_matches
 from functions.get_ids import get_ids
+from functions.log_setup import configure_logging
 from functions.utils import wait
 from objects.APICallTracker import APICallTracker
 from objects.AllSportsClient import AllSportsClient
@@ -130,8 +131,12 @@ def _fetch_and_sync(name: str, data_dict: dict, deps: LoopDeps) -> None:
     deps.fetch_tracker.record_fetch(name, earliest, match_count, player_type=data_dict["player_type"])
 
 
-def run_cycle(queries: dict, deps: LoopDeps) -> None:
-    """Fetch and sync every entity that is due, once; stop early when the daily API limit is reached."""
+def run_cycle(queries: dict, deps: LoopDeps) -> int:
+    """Fetch and sync every entity that is due, once; stop early when the daily API limit is reached.
+
+    Returns how many entities were fetched (0 when every entity was skipped).
+    """
+    fetched = 0
     for name, data_dict in queries.items():
 
         if deps.api_tracker.is_limit_reached():
@@ -143,20 +148,17 @@ def run_cycle(queries: dict, deps: LoopDeps) -> None:
 
         if not deps.fetch_tracker.should_fetch(name):
             hours_left = deps.fetch_tracker.hours_until_next_fetch(name)
-            logger.info(f"Skipping {name} — next fetch in {hours_left:.1f}h")
-            logger.info("--------------------------------------------------")
-            logger.info("")
+            logger.debug(f"Skipping {name} — next fetch in {hours_left:.1f}h")
             continue
 
+        fetched += 1
         try:
             _fetch_and_sync(name, data_dict, deps)
         except Exception:  # one entity's failure must not stop the service: a crash would restart, refetch and crash again
             logger.exception(f"Fetch or calendar sync failed for '{name}'")
             deps.fetch_tracker.record_failure(name)
 
-        logger.info("")
-        logger.info("--------------------------------------------------")
-        logger.info("")
+    return fetched
 
 
 def run(queries: dict, deps: LoopDeps, max_cycles: int | None = None) -> None:
@@ -164,21 +166,14 @@ def run(queries: dict, deps: LoopDeps, max_cycles: int | None = None) -> None:
     sleep_minutes = MAIN_LOOP_SLEEP_MINUTES
     cycles = 0
     while max_cycles is None or cycles < max_cycles:
-        run_cycle(queries, deps)
+        fetched = run_cycle(queries, deps)
         cycles += 1
 
         now = deps.clock.now().astimezone(deps.tz)
         deadline = now + datetime.timedelta(minutes=sleep_minutes)
-        logger.info(deps.api_tracker.status())
-        logger.info(
-            f"Next cycle in {sleep_minutes} minute{'' if sleep_minutes == 1 else 's'} "
-            f"(@ {deadline.hour:02}:{deadline.minute:02})"
-        )
+        level = logging.INFO if fetched else logging.DEBUG  # a cycle that only skipped is not worth a line
+        logger.log(level, f"{deps.api_tracker.status()} · next cycle at {deadline.hour:02}:{deadline.minute:02}")
         wait(deadline, deps.clock)
-
-        logger.info("")
-        logger.info("------------------------------------------------------------------------")
-        logger.info("")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -187,8 +182,7 @@ def main(argv: list[str] | None = None) -> None:
     This is the only place that reads .env, the process environment and the system clock, or opens
     real connections; everything below it receives its collaborators.
     """
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)  # suppress the verbose 'file_cache unavailable' warning emitted by the Google client
+    configure_logging()
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="Sports Calendar Integration")

@@ -278,3 +278,14 @@ def test_returns_empty_list_when_near_has_no_next_event(near_body, caplog):
 
     assert result == []
     assert "No upcoming games found using any endpoints" in caplog.text
+
+
+def test_logs_one_summary_line_instead_of_every_match(caplog):
+    """A full NBA season is ~65 matches; INFO gets one line with the count and the next match, the rest is debug."""
+    second = {**FAKE_EVENT, "id": 2, "startTimestamp": FAKE_EVENT["startTimestamp"] + 86400}
+    session = FakeSession({"events": [second, FAKE_EVENT], "hasNextPage": False})
+
+    get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
+
+    assert "Found 2 upcoming matches; next: Carlos Alcaraz vs Jannik Sinner" in caplog.text
+    assert caplog.text.count(" vs Jannik Sinner") == 1  # the per-match lines are not at INFO
