@@ -98,6 +98,38 @@ def _sync(deps: LoopDeps, data_dict: dict, matches: list) -> int:
     )
 
 
+def _fetch_and_sync(name: str, data_dict: dict, deps: LoopDeps) -> None:
+    """Fetch one entity's matches, write them to its calendar, and record the result.
+
+    A failed fetch (None) is recorded as a failure, not as an empty schedule. Any other error is raised
+    to run_cycle, which records it as a failure too.
+    """
+    matches = deps.fetch_matches(
+        deps.client,
+        team_id=data_dict["id"],
+        team_name=name,
+        sport=data_dict["sport"],
+        player_type=data_dict["player_type"],
+        time_zone=str(deps.tz)
+    )
+    if matches is None:  # already logged by the fetch; retry soon
+        deps.fetch_tracker.record_failure(name)
+        return
+
+    earliest = min((m.start_time for m in matches), default=None)  # default=None avoids ValueError when matches is empty
+
+    match_count = 0
+    if matches:
+        try:
+            match_count = _sync(deps, data_dict, matches)
+        except BrokenPipeError:
+            logger.warning("Calendar connection lost (post-sleep?). Reconnecting and retrying...")
+            deps.calendar.reconnect()
+            match_count = _sync(deps, data_dict, matches)  # a second failure goes to run_cycle's handler
+
+    deps.fetch_tracker.record_fetch(name, earliest, match_count)
+
+
 def run_cycle(queries: dict, deps: LoopDeps) -> None:
     """Fetch and sync every entity that is due, once; stop early when the daily API limit is reached."""
     for name, data_dict in queries.items():
@@ -116,30 +148,11 @@ def run_cycle(queries: dict, deps: LoopDeps) -> None:
             logger.info("")
             continue
 
-        matches = deps.fetch_matches(
-            deps.client,
-            team_id=data_dict["id"],
-            team_name=name,
-            sport=data_dict["sport"],
-            player_type=data_dict["player_type"],
-            time_zone=str(deps.tz)
-        )
-
-        earliest = min((m.start_time for m in matches), default=None)  # default=None avoids ValueError when matches is empty
-
-        match_count = 0
-        if matches:
-            try:
-                match_count = _sync(deps, data_dict, matches)
-            except BrokenPipeError:
-                logger.warning("Calendar connection lost (post-sleep?). Reconnecting and retrying...")
-                deps.calendar.reconnect()
-                try:
-                    match_count = _sync(deps, data_dict, matches)
-                except Exception as e:
-                    logger.error(f"Calendar update failed after reconnect for '{name}': {e}")
-
-        deps.fetch_tracker.record_fetch(name, earliest, match_count)
+        try:
+            _fetch_and_sync(name, data_dict, deps)
+        except Exception:  # one entity's failure must not stop the service: a crash would restart, refetch and crash again
+            logger.exception(f"Fetch or calendar sync failed for '{name}'")
+            deps.fetch_tracker.record_failure(name)
 
         logger.info("")
         logger.info("--------------------------------------------------")
