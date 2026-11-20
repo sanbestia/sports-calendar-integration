@@ -451,3 +451,84 @@ def test_success_resets_the_failure_streak():
     tracker.record_failure("Lakers")
 
     assert tracker.hours_until_next_fetch("Lakers") == pytest.approx(FAILED_HOURS)
+
+
+# --- empty schedules: 3-day grace at the 'unknown' interval, then a doubling wait up to a cap ---
+
+UNKNOWN = FETCH_THRESHOLDS["unknown"]
+EMPTY_HOURS = UNKNOWN["recheck_hours"]
+
+
+def record_empties(tracker, clock, name, count, player_type):
+    """Record `count` empty fetches, each one exactly when the previous wait ends; return the waits."""
+    waits = []
+    for _ in range(count):
+        tracker.record_fetch(name, None, 0, player_type=player_type)
+        waits.append(tracker.hours_until_next_fetch(name))
+        clock.advance(hours=waits[-1])
+    return waits
+
+
+def test_empty_results_wait_the_unknown_interval_during_the_grace_period():
+    """For the first grace_days of empty results the wait stays at 8h (playoff gaps, tennis between rounds)."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    fetches_in_grace = int(UNKNOWN["grace_days"] * 24 / EMPTY_HOURS)
+
+    waits = record_empties(tracker, clock, "Indiana Fever", fetches_in_grace, "team")
+
+    assert waits == pytest.approx([EMPTY_HOURS] * fetches_in_grace)
+
+
+@pytest.mark.parametrize("player_type, expected_after_grace", [
+    ("team", [16, 32, 48, 48]),
+    ("player", [12, 12, 12]),
+])
+def test_after_the_grace_period_the_wait_doubles_up_to_the_cap(player_type, expected_after_grace):
+    """After the grace period each empty result doubles the wait, up to 12h for players and 48h for teams."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    fetches_in_grace = int(UNKNOWN["grace_days"] * 24 / EMPTY_HOURS)
+
+    waits = record_empties(tracker, clock, "Off Season", fetches_in_grace + len(expected_after_grace), player_type)
+
+    assert waits[fetches_in_grace:] == pytest.approx(expected_after_grace)
+    assert UNKNOWN["max_recheck_hours"][player_type] == expected_after_grace[-1]
+
+
+def test_a_found_match_resets_the_empty_wait_and_grace():
+    """When matches appear again, the next empty result starts over at 8h with a new grace period."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    record_empties(tracker, clock, "Indiana Fever", 14, "team")  # well past the grace period
+    tracker.record_fetch("Indiana Fever", clock.now() + timedelta(days=2), 2, player_type="team")
+    clock.advance(days=3)
+
+    waits = record_empties(tracker, clock, "Indiana Fever", 2, "team")
+
+    assert waits == pytest.approx([EMPTY_HOURS, EMPTY_HOURS])
+
+
+def test_a_failure_does_not_change_the_empty_wait():
+    """A failed fetch is retried on the failure schedule; the next empty result continues the doubling."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    waits = record_empties(tracker, clock, "Indiana Fever", 10, "team")  # last wait is 16h
+    tracker.record_failure("Indiana Fever")
+    clock.advance(hours=FAILED_HOURS)
+    tracker.record_fetch("Indiana Fever", None, 0, player_type="team")
+
+    assert waits[-1] == pytest.approx(16)
+    assert tracker.hours_until_next_fetch("Indiana Fever") == pytest.approx(32)
+
+
+def test_existing_empty_rows_start_with_the_unknown_interval(tmp_path):
+    """Rows written before this change (no empty columns) still wait 8h, and get their grace from the next empty fetch."""
+    db_path = str(tmp_path / "fetch_log.db")
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("CREATE TABLE fetch_log (team_name TEXT PRIMARY KEY, last_fetched TEXT NOT NULL, next_match TEXT, match_count INTEGER NOT NULL DEFAULT 0)")
+        conn.execute("INSERT INTO fetch_log VALUES ('Indiana Fever', ?, NULL, 0)", (FakeClock().now().isoformat(),))
+
+    tracker = make_tracker(db_path, clock=FakeClock())
+
+    assert tracker.hours_until_next_fetch("Indiana Fever") == pytest.approx(EMPTY_HOURS)

@@ -179,7 +179,7 @@ def test_records_earliest_match_and_count():
     deps = make_deps(matches=[make_fake_match(LATE), make_fake_match(EARLY)], sync_side_effect=(2,))
     run_cycle(ALCARAZ_QUERIES, deps)
 
-    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 2)
+    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 2, player_type="player")
 
 
 def test_skips_calendar_update_when_no_matches():
@@ -188,7 +188,7 @@ def test_skips_calendar_update_when_no_matches():
     run_cycle(ALCARAZ_QUERIES, deps)
 
     deps.sync_events.assert_not_called()
-    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", None, 0)
+    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", None, 0, player_type="player")
 
 
 def test_skips_entity_that_is_not_due():
@@ -218,7 +218,7 @@ def test_reconnects_calendar_service_on_broken_pipe():
 
     assert deps.calendar.service is second
     assert [c.kwargs["service"] for c in deps.sync_events.call_args_list] == [first, second]
-    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 1)
+    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 1, player_type="player")
 
 
 def test_records_failure_when_retry_after_reconnect_also_fails():
@@ -256,7 +256,7 @@ def test_any_sync_error_is_recorded_and_the_cycle_continues():
     run_cycle(TWO_ENTITY_QUERIES, deps)
 
     deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
-    deps.fetch_tracker.record_fetch.assert_called_once_with("T1", EARLY, 1)
+    deps.fetch_tracker.record_fetch.assert_called_once_with("T1", EARLY, 1, player_type="team")
 
 
 def test_any_fetch_error_is_recorded_and_the_cycle_continues():
@@ -266,7 +266,7 @@ def test_any_fetch_error_is_recorded_and_the_cycle_continues():
     run_cycle(TWO_ENTITY_QUERIES, deps)
 
     deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
-    deps.fetch_tracker.record_fetch.assert_called_once_with("T1", EARLY, 1)
+    deps.fetch_tracker.record_fetch.assert_called_once_with("T1", EARLY, 1, player_type="team")
 
 
 def test_run_waits_between_cycles():

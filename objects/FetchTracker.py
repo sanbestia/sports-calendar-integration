@@ -2,7 +2,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import FETCH_THRESHOLDS
 from objects.Clock import Clock
@@ -15,6 +15,8 @@ DB_FILE = "fetch_log.db"
 _ADDED_COLUMNS = {
     "last_failed": "TEXT",
     "fail_streak": "INTEGER NOT NULL DEFAULT 0",
+    "empty_since": "TEXT",
+    "empty_wait_hours": "REAL",
 }
 
 
@@ -58,7 +60,9 @@ class FetchTracker:
                     next_match TEXT,
                     match_count INTEGER NOT NULL DEFAULT 0,
                     last_failed TEXT,
-                    fail_streak INTEGER NOT NULL DEFAULT 0
+                    fail_streak INTEGER NOT NULL DEFAULT 0,
+                    empty_since TEXT,
+                    empty_wait_hours REAL
                 )
             """)
             columns = {row[1] for row in conn.execute("PRAGMA table_info(fetch_log)")}
@@ -74,7 +78,7 @@ class FetchTracker:
         """Return how many hours until this team is due for a fetch (0.0 if due now or no record)."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT last_fetched, next_match, match_count, last_failed, fail_streak FROM fetch_log WHERE team_name = ?",
+                "SELECT last_fetched, next_match, match_count, last_failed, fail_streak, empty_wait_hours FROM fetch_log WHERE team_name = ?",
                 (team_name,)
             ).fetchone()
 
@@ -92,7 +96,7 @@ class FetchTracker:
             return max(0.0, self._get_failure_recheck_hours(row[4]) - hours_since_failure)
 
         hours_since_fetch = (now - last_fetched).total_seconds() / 3600
-        recheck_hours = self._get_recheck_hours(next_match, now, match_count)
+        recheck_hours = self._get_recheck_hours(next_match, now, match_count, empty_wait_hours=row[5])
         return max(0.0, recheck_hours - hours_since_fetch)
 
     @staticmethod
@@ -105,10 +109,11 @@ class FetchTracker:
         settings = FETCH_THRESHOLDS["failed"]
         return min(settings["recheck_hours"] * 2 ** max(fail_streak - 1, 0), settings["max_recheck_hours"])
 
-    def _get_recheck_hours(self, next_match: datetime | None, now: datetime, match_count: int = 0) -> float:
+    def _get_recheck_hours(self, next_match: datetime | None, now: datetime, match_count: int = 0,
+                           empty_wait_hours: float | None = None) -> float:
         """Return the recheck interval in hours based on how soon the next match is."""
-        if next_match is None:
-            return FETCH_THRESHOLDS["unknown"]["recheck_hours"]
+        if next_match is None:  # empty schedule: the wait stored by record_fetch (8h for rows from before it existed)
+            return empty_wait_hours if empty_wait_hours is not None else FETCH_THRESHOLDS["unknown"]["recheck_hours"]
 
         hours_until_match = (next_match - now).total_seconds() / 3600
 
@@ -127,24 +132,53 @@ class FetchTracker:
         else:
             return FETCH_THRESHOLDS["near"]["recheck_hours"]
 
-    def record_fetch(self, team_name: str, next_match: datetime | None, match_count: int) -> None:
-        """Record that a fetch was just performed for this team, along with their next match time."""
+    def record_fetch(self, team_name: str, next_match: datetime | None, match_count: int, player_type: str = "team") -> None:
+        """Record a successful fetch for this team, along with their next match time.
+
+        An empty result (no next match) also stores how long to wait before the next check: the 'unknown'
+        interval during the first grace_days of empty results, then double the previous wait for each
+        empty result, up to the cap for the player_type. A result with a match clears that state.
+        """
+        now = self._clock.now()
+        empty_since, empty_wait_hours = None, None
         with self._connect() as conn:
+            if next_match is None:
+                row = conn.execute(
+                    "SELECT empty_since, empty_wait_hours FROM fetch_log WHERE team_name = ?", (team_name,)
+                ).fetchone()
+                empty_since, empty_wait_hours = self._next_empty_wait(row, now, player_type)
             conn.execute("""
-                INSERT INTO fetch_log (team_name, last_fetched, next_match, match_count, last_failed, fail_streak)
-                VALUES (?, ?, ?, ?, NULL, 0)
+                INSERT INTO fetch_log (team_name, last_fetched, next_match, match_count, last_failed, fail_streak,
+                                       empty_since, empty_wait_hours)
+                VALUES (?, ?, ?, ?, NULL, 0, ?, ?)
                 ON CONFLICT(team_name) DO UPDATE SET
                     last_fetched = excluded.last_fetched,
                     next_match = excluded.next_match,
                     match_count = excluded.match_count,
                     last_failed = NULL,
-                    fail_streak = 0
+                    fail_streak = 0,
+                    empty_since = excluded.empty_since,
+                    empty_wait_hours = excluded.empty_wait_hours
             """, (
                 team_name,
-                self._clock.now().isoformat(),
+                now.isoformat(),
                 next_match.isoformat() if next_match else None,
-                match_count
+                match_count,
+                empty_since,
+                empty_wait_hours
             ))
+
+    @staticmethod
+    def _next_empty_wait(row: tuple | None, now: datetime, player_type: str) -> tuple[str, float]:
+        """Return (empty_since, wait in hours) for an empty result, given the stored (empty_since, empty_wait_hours)."""
+        settings = FETCH_THRESHOLDS["unknown"]
+        empty_since = datetime.fromisoformat(row[0]) if row and row[0] else now  # this empty run starts now if it is new
+        previous_wait = row[1] if row and row[1] is not None else settings["recheck_hours"]
+        if now - empty_since < timedelta(days=settings["grace_days"]):
+            wait = settings["recheck_hours"]
+        else:
+            wait = min(previous_wait * 2, settings["max_recheck_hours"][player_type])
+        return empty_since.isoformat(), wait
 
     def record_failure(self, team_name: str) -> None:
         """Record that the latest fetch or sync for this team failed, so it is retried after the failure wait.
