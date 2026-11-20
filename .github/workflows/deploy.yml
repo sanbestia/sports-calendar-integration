@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:  # deploy by hand (Actions → "Deploy to Oracle VM" → Run workflow), e.g. after changing the QUERIES_JSON_B64 secret
 
 jobs:
   test:
@@ -11,18 +12,10 @@ jobs:
 
   deploy:
     needs: test  # deploy only when the test suite passes
+    if: github.ref == 'refs/heads/main'  # a manual run from another branch would test that branch but deploy main
     runs-on: ubuntu-latest
+    # System packages are not upgraded here: unattended-upgrades on the VM installs security updates daily.
     steps:
-      - name: Update system packages on VM
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.ORACLE_VM_HOST }}
-          username: ubuntu
-          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
-          script: |
-            sudo apt-get update -q
-            sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -q
-
       - name: Write queries.json to VM
         uses: appleboy/ssh-action@v1.0.3
         with:
