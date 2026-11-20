@@ -17,6 +17,7 @@ from functions.check_calendar_tokens import check_calendar_tokens
 from functions.calendar_methods import update_events, SyncResult
 from functions.get_next_matches import get_next_matches
 from functions.get_ids import get_ids
+from functions.queries_file import REQUIRED_QUERY_FIELDS
 from functions.log_setup import configure_logging
 from functions.utils import wait
 from objects.APICallTracker import APICallTracker
@@ -29,7 +30,6 @@ from config import MAIN_LOOP_SLEEP_MINUTES, API_CALL_CEILING
 logger = logging.getLogger(__name__)
 
 
-_REQUIRED_QUERY_FIELDS = {"id", "sport", "player_type", "calendar"}
 
 
 def load_queries(filepath: str, env: Mapping[str, str] = os.environ) -> dict:
@@ -38,7 +38,7 @@ def load_queries(filepath: str, env: Mapping[str, str] = os.environ) -> dict:
         raw = json.load(f)
 
     for name, data in raw.items():
-        missing = _REQUIRED_QUERY_FIELDS - data.keys()
+        missing = REQUIRED_QUERY_FIELDS - data.keys()
         if missing:
             raise ValueError(f"Query '{name}' is missing required fields: {', '.join(sorted(missing))}")
         env_key = data["calendar"]

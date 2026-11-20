@@ -128,6 +128,24 @@ uv run python -m functions.get_ids
 
 You will be prompted to enter a name and sport, shown a list of matches to choose from, and asked to confirm your selection. At the end, the script prints a summary of all selected entries with their IDs. API calls made during the search are tracked against your daily limit. Like the main script, it reads `RAPIDAPI_KEY` from `.env`.
 
+### Adding a team or player
+
+To add an entry to `queries.json` without editing the file by hand:
+
+```bash
+uv run python -m functions.add_entity
+```
+
+It runs the same search as `get_ids`. For each entity you pick, it asks for the name to use in `queries.json` (Enter keeps the API name) and for the calendar: one of the env keys the file already uses, or another key from `.env`. It refuses an entry whose calendar key is not set in `.env`, a name that is already in the file, and an entity (same id and sport) that is already tracked. At the end it offers to upload the file and deploy.
+
+To upload `queries.json` and deploy later, or after editing it by hand:
+
+```bash
+uv run python -m functions.push_queries
+```
+
+It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON) and starts the deploy workflow on `main`, which writes the file to the VM and restarts the service. It runs `gh` as the repository owner's account, not as `gh`'s active account.
+
 ### Running the script with a predefined query file
 
 Once you have your IDs, create a `queries.json` file in the root directory and run:
