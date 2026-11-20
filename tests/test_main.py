@@ -4,7 +4,9 @@ import datetime
 from unittest.mock import MagicMock
 from config import MAIN_LOOP_SLEEP_MINUTES
 from functions.calendar_methods import SyncResult
-from main import load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection
+from main import load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version
+import subprocess
+from config import API_CALL_CEILING
 from tests.fakes import FakeClock, FakeSession, ScriptedInput, make_client
 
 
@@ -132,7 +134,7 @@ def make_fake_match(start_time: datetime.datetime) -> MagicMock:
     return fake_match
 
 
-def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_reached=False, should_fetch=True, services=None) -> LoopDeps:
+def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_reached=False, should_fetch=True, services=None, clock=None) -> LoopDeps:
     """Loop dependencies made of mocks and fakes; every collaborator is passed in, nothing is patched."""
     api_tracker = MagicMock(daily_limit=100)
     api_tracker.is_limit_reached.return_value = limit_reached
@@ -148,7 +150,7 @@ def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_r
         fetch_tracker=fetch_tracker,
         history=MagicMock(),
         calendar=CalendarConnection(lambda: next(service_iter)),
-        clock=FakeClock(),
+        clock=clock or FakeClock(),
         tz=datetime.timezone.utc,
         fetch_matches=MagicMock(return_value=None if fetch_fails else [make_fake_match(EARLY)] if matches is None else matches),
         sync_events=MagicMock(side_effect=sync_results),
@@ -373,3 +375,66 @@ def test_a_failed_history_write_does_not_turn_a_good_fetch_into_a_failure(caplog
     assert deps.fetch_tracker.record_fetch.call_count == 2
     deps.fetch_tracker.record_failure.assert_not_called()
     assert "Could not write fetch history for 'Carlos Alcaraz': disk full" in caplog.text
+
+
+
+# --- daily summary and version line ---
+
+DAY_SUMMARY = {"fetches": 25, "with_matches": 5, "empty": 18, "failed": 2, "api_calls": 31, "created": 1, "updated": 3, "deleted": 0}
+
+
+def make_deps_at_midnight(calls_that_day: int) -> LoopDeps:
+    """Deps whose clock starts 3 minutes before midnight, so one 5-minute wait crosses into the next day."""
+    deps = make_deps(should_fetch=False, clock=FakeClock(datetime.datetime(2026, 1, 15, 23, 57, tzinfo=datetime.timezone.utc)))
+    deps.history.day_summary.return_value = DAY_SUMMARY
+    deps.api_tracker.calls_on.return_value = calls_that_day
+    return deps
+
+
+def test_logs_a_summary_of_the_previous_day_after_midnight(caplog):
+    """The first cycle of a new day logs yesterday's totals, read from api_calls.db and fetch_history."""
+    deps = make_deps_at_midnight(calls_that_day=32)
+    run(ALCARAZ_QUERIES, deps, max_cycles=2)
+
+    deps.history.day_summary.assert_called_once_with(datetime.date(2026, 1, 15))
+    assert ("Daily summary for 2026-01-15: 32 API calls; 25 fetches (5 with matches, 18 empty, 2 failed); "
+            "events: 1 created, 3 updated, 0 deleted") in caplog.text
+
+
+def test_daily_summary_warns_above_the_call_ceiling(caplog):
+    """A day above the ceiling is a WARNING, so it shows in `journalctl -p warning`."""
+    deps = make_deps_at_midnight(calls_that_day=API_CALL_CEILING + 5)
+    run(ALCARAZ_QUERIES, deps, max_cycles=2)
+
+    (record,) = [r for r in caplog.records if r.getMessage().startswith("Daily summary")]
+    assert record.levelname == "WARNING"
+    assert f"above the {API_CALL_CEILING}-call ceiling" in record.getMessage()
+
+
+def test_no_summary_while_the_day_has_not_changed():
+    deps = make_deps(should_fetch=False)
+    run(ALCARAZ_QUERIES, deps, max_cycles=2)
+
+    deps.history.day_summary.assert_not_called()
+
+
+def test_a_failed_summary_is_a_warning_and_the_loop_goes_on(caplog):
+    deps = make_deps_at_midnight(calls_that_day=10)
+    deps.history.day_summary.side_effect = OSError("database is locked")
+    run(ALCARAZ_QUERIES, deps, max_cycles=2)
+
+    assert "Could not build the daily summary for 2026-01-15: database is locked" in caplog.text
+
+
+def test_current_version_is_the_short_git_commit():
+    def fake_git(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout="ceb2b35\n", stderr="")
+    assert current_version(run=fake_git) == "ceb2b35"
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError("git"), subprocess.CalledProcessError(128, "git")])
+def test_current_version_is_unknown_without_git(failure):
+    """A copy without .git or without the git command still starts."""
+    def failing_git(*args, **kwargs):
+        raise failure
+    assert current_version(run=failing_git) == "unknown"

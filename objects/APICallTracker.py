@@ -1,4 +1,6 @@
 import logging
+from datetime import date
+
 from config import MAX_API_CALLS
 from objects.Clock import Clock
 from objects.SqliteStore import SqliteStore
@@ -30,11 +32,12 @@ class APICallTracker(SqliteStore):
 
     def _load(self) -> int:
         """Load today's count from the database, or return 0 if no entry exists."""
+        return self.calls_on(self.current_date)
+
+    def calls_on(self, day: date) -> int:
+        """Return the stored call count for a day (0 if there is none), e.g. yesterday's for the daily summary."""
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT count FROM api_calls WHERE date = ?",
-                (str(self.current_date),)
-            ).fetchone()
+            row = conn.execute("SELECT count FROM api_calls WHERE date = ?", (str(day),)).fetchone()
         return row[0] if row else 0
 
     def _check_reset(self) -> None:
