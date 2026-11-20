@@ -104,6 +104,8 @@ Each team is re-fetched at different rates depending on how soon their next matc
 
 A failed fetch (a timeout, an unreadable response, or a Calendar error) is not treated as "no matches". The team is retried after `failed.recheck_hours`, and the wait doubles for each failure in a row up to `failed.max_recheck_hours`, so one broken team cannot use the daily API budget. A successful fetch returns the team to its normal schedule. An error for one team is logged and does not stop the service or the other teams.
 
+The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit). The schedule aims at about 40-70 calls per day in normal use, which leaves headroom for outages and retries without wasting the budget. Check that range when you change `FETCH_THRESHOLDS` or add teams (`uv run python functions/db_stats.py avg_daily_calls`).
+
 ### Local state files
 
 On first run, the program automatically creates two SQLite database files in the working directory: `api_calls.db` to track your daily API usage, and `fetch_log.db` to remember when each team was last fetched. These are managed automatically and you don't need to touch them.
