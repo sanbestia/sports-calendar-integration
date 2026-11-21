@@ -7,13 +7,13 @@ import argparse
 import datetime
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from dotenv import load_dotenv
 from tzlocal import get_localzone
 from googleapiclient.discovery import build
 
-from functions.check_calendar_tokens import check_calendar_tokens
+from functions.check_calendar_tokens import check_calendar_tokens, TOKEN_ERRORS
 from functions.calendar_methods import update_events, SyncResult
 from functions.get_next_matches import get_next_matches
 from functions.get_ids import get_ids
@@ -29,7 +29,9 @@ from config import MAIN_LOOP_SLEEP_MINUTES, API_CALL_CEILING
 
 logger = logging.getLogger(__name__)
 
-
+RELOGIN_STEPS = ("To renew it: on a computer with a browser, run `uv run python -m functions.check_calendar_tokens` "
+                 "in the repo, then copy the new token.json into the service's folder on the server. The service starts "
+                 "again every minute, so it picks up the file by itself (README: 'Renewing the Google login').")
 
 
 def load_queries(filepath: str, env: Mapping[str, str] = os.environ) -> dict:
@@ -179,6 +181,8 @@ def run_cycle(queries: dict, deps: LoopDeps) -> int:
         calls_before = deps.client.calls_made
         try:
             result = _fetch_and_sync(name, data_dict, deps)
+        except TOKEN_ERRORS:
+            raise  # no entity can sync without a token: main() reports it, instead of one entity's backoff
         except Exception as e:  # one entity's failure must not stop the service: a crash would restart, refetch and crash again
             logger.exception(f"Fetch or calendar sync failed for '{name}'")
             deps.fetch_tracker.record_failure(name)
@@ -258,11 +262,47 @@ def install_stop_handler(register: Callable = signal.signal) -> None:
     register(signal.SIGTERM, stop)
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Composition root: parse args, build the real collaborators, and run the loop forever.
+def stop_for_login(error: Exception) -> NoReturn:
+    """Log why a Google login is needed and how to renew it, and exit with code 1.
 
-    This is the only place that reads .env, the process environment and the system clock, or opens
-    real connections; everything below it receives its collaborators.
+    With code 1, systemd (Restart=on-failure) starts the service again every minute, so it recovers by itself
+    once a new token.json is in place, and also after a refusal that was only temporary.
+    """
+    message = f"Google Calendar login needed: {error}. {RELOGIN_STEPS}"
+    logger.error(message)
+    raise SystemExit(1)
+
+
+def _serve(queries_path: str | None) -> None:
+    """Build the real collaborators and run the loop forever."""
+    tz = get_localzone()
+    clock = Clock()
+    calendar = CalendarConnection(lambda: build("calendar", "v3", credentials=check_calendar_tokens()))
+    api_tracker = APICallTracker(clock=clock)
+    client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=api_tracker)
+
+    if queries_path:
+        queries = load_queries(queries_path)
+    else:
+        queries = build_queries_from_get_ids(client)
+
+    deps = LoopDeps(
+        client=client,
+        api_tracker=api_tracker,
+        fetch_tracker=FetchTracker(clock=clock),
+        history=FetchHistory(clock=clock),
+        calendar=calendar,
+        clock=clock,
+        tz=tz
+    )
+    run(queries, deps)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Composition root: parse args and serve; a token failure stops the service with the steps to renew the login.
+
+    main() and _serve() are the only places that read .env, the process environment and the system clock, or
+    open real connections; everything below them receives its collaborators.
     """
     configure_logging()
     install_stop_handler()
@@ -278,27 +318,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    tz = get_localzone()
-    clock = Clock()
-    calendar = CalendarConnection(lambda: build("calendar", "v3", credentials=check_calendar_tokens()))
-    api_tracker = APICallTracker(clock=clock)
-    client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=api_tracker)
-
-    if args.queries:
-        queries = load_queries(args.queries)
-    else:
-        queries = build_queries_from_get_ids(client)
-
-    deps = LoopDeps(
-        client=client,
-        api_tracker=api_tracker,
-        fetch_tracker=FetchTracker(clock=clock),
-        history=FetchHistory(clock=clock),
-        calendar=calendar,
-        clock=clock,
-        tz=tz
-    )
-    run(queries, deps)
+    try:
+        _serve(args.queries)
+    except TOKEN_ERRORS as e:
+        stop_for_login(e)
 
 
 if __name__ == "__main__":
