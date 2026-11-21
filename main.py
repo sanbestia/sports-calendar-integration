@@ -6,7 +6,7 @@ import logging
 import argparse
 import datetime
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, NoReturn
 
 from dotenv import load_dotenv
@@ -25,6 +25,7 @@ from objects.AllSportsClient import AllSportsClient
 from objects.FetchTracker import FetchTracker
 from objects.FetchHistory import FetchHistory
 from objects.Clock import Clock
+from objects.Heartbeat import Heartbeat
 from config import MAIN_LOOP_SLEEP_MINUTES, API_CALL_CEILING
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ class LoopDeps:
     tz: datetime.tzinfo
     fetch_matches: Callable[..., list | None] = get_next_matches
     sync_events: Callable[..., SyncResult] = update_events
+    heartbeat: Heartbeat = field(default_factory=lambda: Heartbeat(None))  # off unless main() passes the real one
 
 
 @dataclass(frozen=True)
@@ -216,7 +218,7 @@ def _log_daily_summary(deps: LoopDeps, day: datetime.date) -> None:
 def run(queries: dict, deps: LoopDeps, max_cycles: int | None = None) -> None:
     """Run cycles forever (or max_cycles times), waiting MAIN_LOOP_SLEEP_MINUTES after each one.
 
-    The first cycle of a new day first logs the previous day's summary.
+    The first cycle of a new day first logs the previous day's summary. The heartbeat is pinged after each cycle.
     """
     sleep_minutes = MAIN_LOOP_SLEEP_MINUTES
     cycles = 0
@@ -228,6 +230,7 @@ def run(queries: dict, deps: LoopDeps, max_cycles: int | None = None) -> None:
             summary_day = today
 
         fetched = run_cycle(queries, deps)
+        deps.heartbeat.ping()
         cycles += 1
 
         now = deps.clock.now().astimezone(deps.tz)
@@ -262,18 +265,26 @@ def install_stop_handler(register: Callable = signal.signal) -> None:
     register(signal.SIGTERM, stop)
 
 
-def stop_for_login(error: Exception) -> NoReturn:
-    """Log why a Google login is needed and how to renew it, and exit with code 1.
+def make_heartbeat(env: Mapping[str, str] = os.environ) -> Heartbeat:
+    """Build the heartbeat from HEALTHCHECK_URL, and log whether it is on (never the URL: it is a secret)."""
+    heartbeat = Heartbeat(env.get("HEALTHCHECK_URL"))
+    logger.info("Heartbeat on (healthchecks.io)" if heartbeat.enabled else "Heartbeat off: HEALTHCHECK_URL is not set")
+    return heartbeat
+
+
+def stop_for_login(error: Exception, heartbeat: Heartbeat) -> NoReturn:
+    """Log why a Google login is needed and how to renew it, send that as a fail ping, and exit with code 1.
 
     With code 1, systemd (Restart=on-failure) starts the service again every minute, so it recovers by itself
     once a new token.json is in place, and also after a refusal that was only temporary.
     """
     message = f"Google Calendar login needed: {error}. {RELOGIN_STEPS}"
     logger.error(message)
+    heartbeat.fail(message)
     raise SystemExit(1)
 
 
-def _serve(queries_path: str | None) -> None:
+def _serve(queries_path: str | None, heartbeat: Heartbeat) -> None:
     """Build the real collaborators and run the loop forever."""
     tz = get_localzone()
     clock = Clock()
@@ -293,13 +304,14 @@ def _serve(queries_path: str | None) -> None:
         history=FetchHistory(clock=clock),
         calendar=calendar,
         clock=clock,
-        tz=tz
+        tz=tz,
+        heartbeat=heartbeat
     )
     run(queries, deps)
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Composition root: parse args and serve; a token failure stops the service with the steps to renew the login.
+    """Composition root: parse args, start the heartbeat, and serve; a token failure stops the service with an alert.
 
     main() and _serve() are the only places that read .env, the process environment and the system clock, or
     open real connections; everything below them receives its collaborators.
@@ -318,10 +330,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
+    heartbeat = make_heartbeat()
     try:
-        _serve(args.queries)
+        _serve(args.queries, heartbeat)
     except TOKEN_ERRORS as e:
-        stop_for_login(e)
+        stop_for_login(e, heartbeat)
 
 
 if __name__ == "__main__":
