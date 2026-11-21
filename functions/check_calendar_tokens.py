@@ -1,5 +1,5 @@
 # check validity of stored tokens
-# if not present, create token file
+# a new token comes only from the browser login: `uv run python -m functions.check_calendar_tokens`
 
 import logging
 import os.path
@@ -9,10 +9,21 @@ from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+from functions.log_setup import configure_logging
+
 # If modifying these scopes, delete the file token.json.
 SCOPES: list[str] = ["https://www.googleapis.com/auth/calendar"]
 
 logger = logging.getLogger(__name__)
+
+
+class LoginRequired(Exception):
+    """The stored Google token is missing or cannot be refreshed: a person must log in again in a browser."""
+
+
+# The errors that mean "no valid token". A RefreshError can also come later, from a Calendar call whose
+# automatic token refresh fails.
+TOKEN_ERRORS: tuple[type[Exception], ...] = (LoginRequired, RefreshError)
 
 
 class GoogleAuth:
@@ -32,38 +43,58 @@ class GoogleAuth:
         return flow.run_local_server(port=0)
 
 
-def check_calendar_tokens(token_path: str = "token.json", credentials_path: str = "credentials.json",
-                          auth: GoogleAuth | None = None) -> Credentials:
-    """Return valid Google Calendar credentials, refreshing or re-authorising as needed."""
+def _save(creds: Credentials, token_path: str) -> None:
+    """Write the credentials to the token file, for the next start."""
+    with open(token_path, "w") as token:
+        token.write(creds.to_json())
+
+
+def check_calendar_tokens(token_path: str = "token.json", auth: GoogleAuth | None = None) -> Credentials:
+    """Return valid Google Calendar credentials from the token file, refreshing and saving them if they expired.
+
+    Raises LoginRequired when there is no token file or the token cannot be refreshed. It never opens a
+    browser: on the server, the login flow would wait forever for a person who is not there.
+    """
     auth = auth or GoogleAuth()
     logger.info("Checking tokens...")
-    creds = None
-    # The token file stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first time.
-    if os.path.exists(token_path):
-        creds = auth.load(token_path)
-        logger.info("Tokens exist")
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        logger.info("No valid tokens available, creating new ones")
-        refreshed = False
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                auth.refresh(creds)
-                logger.info("Creds refreshed.")
-                refreshed = True
-            except RefreshError as e:
-                logger.error("Failed to refresh non-valid tokens.")
-                logger.error(e)
-                logger.error("Deleting tokens and trying to restart authorization flow...")
-                os.remove(token_path)
-        if not refreshed:
-            creds = auth.run_flow(credentials_path)
-        # Save the credentials for the next run
-        with open(token_path, "w") as token:
-            token.write(creds.to_json())
-            logger.info("Tokens created")
-    else:
+    if not os.path.exists(token_path):
+        raise LoginRequired(f"no token file ({token_path})")
+    creds = auth.load(token_path)
+    if creds.valid:
         logger.info("Available tokens are valid")
-    logger.info("")
+        return creds
+    if not (creds.expired and creds.refresh_token):
+        raise LoginRequired("the stored token cannot be refreshed")
+    try:
+        auth.refresh(creds)
+    except RefreshError as e:  # the file is kept: the refusal can be temporary, and the next start tries again
+        reason = e.args[0] if e.args else e  # str(e) would print the whole tuple of arguments
+        raise LoginRequired(f"Google refused to refresh the token: {reason}") from e
+    _save(creds, token_path)
+    logger.info("Creds refreshed.")
     return creds
+
+
+def log_in(token_path: str = "token.json", credentials_path: str = "credentials.json",
+           auth: GoogleAuth | None = None) -> Credentials:
+    """Open the browser login, then save the new token. Run it on a computer with a browser."""
+    auth = auth or GoogleAuth()
+    creds = auth.run_flow(credentials_path)
+    _save(creds, token_path)
+    logger.info(f"Logged in: saved a new token to {token_path}")
+    return creds
+
+
+def log_in_if_needed(token_path: str = "token.json", credentials_path: str = "credentials.json",
+                     auth: GoogleAuth | None = None) -> Credentials:
+    """Check the stored token, and open the browser login only when the check asks for a login."""
+    try:
+        return check_calendar_tokens(token_path, auth)
+    except LoginRequired as e:
+        logger.info(f"Login needed: {e}. Opening the browser login...")
+        return log_in(token_path, credentials_path, auth)
+
+
+if __name__ == "__main__":
+    configure_logging()
+    log_in_if_needed()

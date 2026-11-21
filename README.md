@@ -60,13 +60,13 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 
 2. Navigate to **APIs & Services → Library**, search for "Google Calendar API", and enable it.
 
-3. Go to **APIs & Services → OAuth consent screen**. Choose **External**, fill in the app name and your email, and save. You don't need to publish the app; leaving it in testing mode is fine for personal use.
+3. Go to **APIs & Services → OAuth consent screen**. Choose **External**, fill in the app name and your email, and save. Then set the publishing status to **In production** (**Publish app** on the **Audience** page). In **Testing**, the token of an app with the Calendar scope expires after 7 days, so the service would need a new login every week. For your own account the app does not need Google's verification.
 
 4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**. Choose **Desktop app**, give it a name, and download the resulting file. Rename it to `credentials.json` and place it in the root directory of the project.
 
-5. On your first run, a browser window will open asking you to authorise the app with your Google account. After you confirm, a `token.json` file will be created automatically and reused in future runs.
+5. Log in once, on a computer with a browser: run `uv run python -m functions.check_calendar_tokens`. A browser window asks you to authorise the app with your Google account. After you confirm, a `token.json` file is created, and later runs reuse it. The service itself never opens a browser: without a valid `token.json` it logs an error and stops (see [Renewing the Google login](#renewing-the-google-login)).
 
-> **Note:** If you see a "Google hasn't verified this app" warning, click **Advanced → Go to (app name)** to proceed. This appears because the app is in testing mode and is expected behaviour.
+> **Note:** If you see a "Google hasn't verified this app" warning, click **Advanced → Go to (app name)** to proceed. This appears because Google has not verified the app, and is expected behaviour.
 
 ---
 
@@ -193,12 +193,20 @@ journalctl -u sports-calendar -p warning --since -7d  # only warnings and errors
 
 At INFO level you see the version (git commit) at startup, each fetch, a one-line summary of the matches found, each event created, updated or deleted, the API call count after a cycle that did work, and after midnight a daily summary of the previous day (API calls, fetches by result, event changes; a WARNING when the calls were above `API_CALL_CEILING`). Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events and skipped teams are logged at DEBUG.
 
+### Renewing the Google login
+
+The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), the service logs an ERROR that starts with `Google Calendar login needed`, and exits. systemd starts it again every minute (`RestartSec=60`), and each start checks the token again. To renew the token:
+
+1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run python -m functions.check_calendar_tokens`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
+2. Copy it to the server: `scp token.json ubuntu@<server>:/home/ubuntu/sports_calendar_integration/token.json`.
+3. The next start, within a minute, uses it. To check, run `journalctl -u sports-calendar -n 20`: you see `Creds refreshed.` or `Available tokens are valid`, and no new `login needed` error.
+
 ### Running tests
 ```bash
 uv run pytest -v
 ```
 
-The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. `main()` is the only place that builds the real ones.
+The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. Only `main()` and `_serve()` in `main.py` build the real ones.
 
 ### Continuous integration
 

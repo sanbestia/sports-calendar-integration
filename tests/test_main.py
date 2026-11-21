@@ -4,7 +4,10 @@ import datetime
 from unittest.mock import MagicMock
 from config import MAIN_LOOP_SLEEP_MINUTES
 from functions.calendar_methods import SyncResult
-from main import load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version, install_stop_handler
+from main import (load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version,
+                  install_stop_handler, stop_for_login)
+from google.auth.exceptions import RefreshError
+from functions.check_calendar_tokens import LoginRequired
 import signal
 import subprocess
 from config import API_CALL_CEILING
@@ -462,3 +465,29 @@ def test_sigterm_handler_exits_with_code_0(caplog):
 
     assert stop.value.code == 0
     assert "Stopping: received SIGTERM" in caplog.text
+
+
+# --- token failures ---
+
+@pytest.mark.parametrize("error", [RefreshError("invalid_grant"), LoginRequired("no token file (token.json)")])
+def test_a_token_error_stops_the_cycle_and_is_not_an_entity_failure(error):
+    """No entity can sync without a token. A RefreshError comes from a Calendar call whose token refresh fails,
+    LoginRequired from a reconnect. Both go up to main(), which reports them, instead of one entity's backoff."""
+    deps = make_deps(sync_side_effect=(error,))
+
+    with pytest.raises(type(error)):
+        run_cycle(ALCARAZ_QUERIES, deps)
+
+    deps.fetch_tracker.record_failure.assert_not_called()
+
+
+def test_stop_for_login_logs_the_steps_and_exits_1(caplog):
+    """Exit code 1 makes systemd start the service again every minute, so it recovers once a new token.json is in place."""
+    with pytest.raises(SystemExit) as stop:
+        stop_for_login(LoginRequired("no token file (token.json)"))
+
+    assert stop.value.code == 1
+    error_lines = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_lines) == 1
+    assert "no token file" in error_lines[0]
+    assert "python -m functions.check_calendar_tokens" in error_lines[0]
