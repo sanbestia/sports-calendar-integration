@@ -5,13 +5,14 @@ from unittest.mock import MagicMock
 from config import MAIN_LOOP_SLEEP_MINUTES
 from functions.calendar_methods import SyncResult
 from main import (load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version,
-                  install_stop_handler, stop_for_login)
+                  install_stop_handler, make_heartbeat, stop_for_login)
 from google.auth.exceptions import RefreshError
 from functions.check_calendar_tokens import LoginRequired
+from objects.Heartbeat import Heartbeat
 import signal
 import subprocess
 from config import API_CALL_CEILING
-from tests.fakes import FakeClock, FakeSession, ScriptedInput, make_client
+from tests.fakes import FakeClock, FakeSession, FakePost, ScriptedInput, make_client
 
 
 FAKE_RAW_QUERIES = {
@@ -467,7 +468,21 @@ def test_sigterm_handler_exits_with_code_0(caplog):
     assert "Stopping: received SIGTERM" in caplog.text
 
 
-# --- token failures ---
+# --- heartbeat and token failures ---
+
+PING_URL = "https://hc-ping.com/0f1e2d3c-secret-uuid"
+
+
+def test_run_pings_the_heartbeat_after_each_cycle():
+    """healthchecks.io alerts when the pings stop: a hang, a crash loop or a dead VM."""
+    post = FakePost()
+    deps = make_deps(sync_side_effect=(1, 1))
+    deps.heartbeat = Heartbeat(PING_URL, post=post)
+
+    run(ALCARAZ_QUERIES, deps, max_cycles=2)
+
+    assert [c["url"] for c in post.calls] == [PING_URL, PING_URL]
+
 
 @pytest.mark.parametrize("error", [RefreshError("invalid_grant"), LoginRequired("no token file (token.json)")])
 def test_a_token_error_stops_the_cycle_and_is_not_an_entity_failure(error):
@@ -481,13 +496,30 @@ def test_a_token_error_stops_the_cycle_and_is_not_an_entity_failure(error):
     deps.fetch_tracker.record_failure.assert_not_called()
 
 
-def test_stop_for_login_logs_the_steps_and_exits_1(caplog):
+def test_stop_for_login_logs_the_steps_sends_a_fail_ping_and_exits_1(caplog):
     """Exit code 1 makes systemd start the service again every minute, so it recovers once a new token.json is in place."""
+    post = FakePost()
+
     with pytest.raises(SystemExit) as stop:
-        stop_for_login(LoginRequired("no token file (token.json)"))
+        stop_for_login(LoginRequired("no token file (token.json)"), Heartbeat(PING_URL, post=post))
 
     assert stop.value.code == 1
     error_lines = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert len(error_lines) == 1
     assert "no token file" in error_lines[0]
     assert "python -m functions.check_calendar_tokens" in error_lines[0]
+    assert [c["url"] for c in post.calls] == [f"{PING_URL}/fail"]
+    assert post.calls[0]["data"].decode() == error_lines[0]
+
+
+@pytest.mark.parametrize("env, enabled, line", [
+    ({"HEALTHCHECK_URL": PING_URL}, True, "Heartbeat on"),
+    ({}, False, "Heartbeat off"),
+])
+def test_make_heartbeat_logs_whether_it_is_on_but_never_the_url(caplog, env, enabled, line):
+    """The start-up line shows on the server whether the .env has the URL. The URL is a secret."""
+    heartbeat = make_heartbeat(env)
+
+    assert heartbeat.enabled is enabled
+    assert line in caplog.text
+    assert "secret-uuid" not in caplog.text

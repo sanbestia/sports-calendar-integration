@@ -74,6 +74,28 @@ class FakeSession:
         return FakeResponse(reply if isinstance(reply, str) else json.dumps(reply))
 
 
+class FakePostResponse:
+    """The part of requests.Response that the heartbeat reads."""
+
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+
+
+class FakePost:
+    """Stands in for requests.post: records each call, then returns a reply with the given status or raises the given error."""
+
+    def __init__(self, status_code: int = 200, error: BaseException | None = None):
+        self.status_code = status_code
+        self.error = error
+        self.calls: list[dict] = []
+
+    def __call__(self, url: str, data: bytes | None = None, timeout: float | None = None) -> FakePostResponse:
+        self.calls.append({"url": url, "data": data, "timeout": timeout})
+        if self.error is not None:
+            raise self.error
+        return FakePostResponse(self.status_code)
+
+
 def make_client(session: FakeSession, tracker=None) -> AllSportsClient:
     """An AllSportsClient with a fake key, the given fake session, and a mock call tracker by default."""
     return AllSportsClient(api_key="test-key", tracker=tracker if tracker is not None else MagicMock(), session=session)
