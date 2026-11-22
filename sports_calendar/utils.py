@@ -1,20 +1,8 @@
-import datetime
 import re
 import logging
 from collections.abc import Callable
 
-from sports_calendar.clock import Clock
-
 logger = logging.getLogger(__name__)
-
-
-def wait(deadline: datetime.datetime, clock: Clock) -> None:
-    """Sleep until the (aware) deadline, waking at most every 3 minutes to re-check."""
-    now = clock.now()
-    while now < deadline:
-        time_remaining = int((deadline - now).total_seconds())
-        clock.sleep(min(180, time_remaining + 5))  # cap at 3 min so the deadline is re-checked periodically; +5s buffer avoids waking slightly early
-        now = clock.now()
 
 
 def sanitize_for_log(value: str) -> str:

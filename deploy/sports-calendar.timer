@@ -1,0 +1,11 @@
+# Starts deploy/sports-calendar.service at :00, :15, :30 and :45. A calendar time needs no first trigger,
+# and it fires again after a failed run. When a run is still active, systemd leaves it running and does
+# not start a second one.
+[Unit]
+Description=Sports Calendar Integration every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+
+[Install]
+WantedBy=timers.target

@@ -2,16 +2,15 @@ import pytest
 import json
 import datetime
 from unittest.mock import MagicMock
-from sports_calendar.config import MAIN_LOOP_SLEEP_MINUTES
 from sports_calendar.google_calendar.sync import SyncResult
-from main import (load_queries, run_cycle, run, LoopDeps, CalendarConnection, current_version,
+from main import (load_queries, run_cycle, run_once, RunDeps, current_version,
                   install_stop_handler, make_heartbeat, stop_for_login)
 from google.auth.exceptions import RefreshError
 from sports_calendar.google_calendar.auth import LoginRequired
 from sports_calendar.heartbeat import Heartbeat
+import logging
 import signal
 import subprocess
-from sports_calendar.config import API_CALL_CEILING
 from tests.fakes import FakeClock, FakePost
 
 
@@ -76,7 +75,7 @@ def test_load_queries_raises_when_required_field_missing(tmp_path):
         load_queries(write_queries(tmp_path, incomplete), env=FAKE_ENV)
 
 
-# --- run_cycle / run tests ---
+# --- run_cycle / run_once tests ---
 
 ALCARAZ_QUERIES = {
     "Carlos Alcaraz": {
@@ -96,23 +95,22 @@ def make_fake_match(start_time: datetime.datetime) -> MagicMock:
     return fake_match
 
 
-def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_reached=False, should_fetch=True, services=None, clock=None) -> LoopDeps:
-    """Loop dependencies made of mocks and fakes; every collaborator is passed in, nothing is patched."""
+def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_reached=False, should_fetch=True) -> RunDeps:
+    """Run dependencies made of mocks and fakes; every collaborator is passed in, nothing is patched."""
     api_tracker = MagicMock(daily_limit=100)
     api_tracker.is_limit_reached.return_value = limit_reached
     api_tracker.status.return_value = "API calls today: 1/100"
     fetch_tracker = MagicMock()
     fetch_tracker.should_fetch.return_value = should_fetch
     fetch_tracker.hours_until_next_fetch.return_value = 3.0
-    service_iter = iter(services if services is not None else [MagicMock()])
     sync_results = [SyncResult(event_count=r) if isinstance(r, int) else r for r in sync_side_effect]
-    return LoopDeps(
+    return RunDeps(
         client=MagicMock(calls_made=0),
         api_tracker=api_tracker,
         fetch_tracker=fetch_tracker,
         history=MagicMock(),
-        calendar=CalendarConnection(lambda: next(service_iter)),
-        clock=clock or FakeClock(),
+        calendar_service=MagicMock(),
+        clock=FakeClock(),
         tz=datetime.timezone.utc,
         fetch_matches=MagicMock(return_value=None if fetch_fails else [make_fake_match(EARLY)] if matches is None else matches),
         sync_events=MagicMock(side_effect=sync_results),
@@ -129,15 +127,15 @@ def test_fetches_with_client_and_entity_fields():
     )
 
 
-def test_syncs_to_entity_calendar_with_current_service_and_clock():
-    """Matches go to the entity's calendar, through the current service, with the loop's clock."""
+def test_syncs_to_entity_calendar_with_the_runs_service_and_clock():
+    """Matches go to the entity's calendar, through the run's calendar service, with the run's clock."""
     deps = make_deps()
     run_cycle(ALCARAZ_QUERIES, deps)
 
     kwargs = deps.sync_events.call_args.kwargs
     assert kwargs["calendar_id"] == "tennis_calendar_id"
     assert kwargs["team_id"] == "275923"
-    assert kwargs["service"] is deps.calendar.service
+    assert kwargs["service"] is deps.calendar_service
     assert kwargs["clock"] is deps.clock
 
 
@@ -175,27 +173,6 @@ def test_stops_fetching_when_daily_limit_reached():
 
     deps.fetch_matches.assert_not_called()
     deps.fetch_tracker.should_fetch.assert_not_called()
-
-
-def test_reconnects_calendar_service_on_broken_pipe():
-    """A BrokenPipeError rebuilds the calendar service and retries the sync with the new one."""
-    first, second = MagicMock(), MagicMock()
-    deps = make_deps(sync_side_effect=(BrokenPipeError, 1), services=[first, second])
-    run_cycle(ALCARAZ_QUERIES, deps)
-
-    assert deps.calendar.service is second
-    assert [c.kwargs["service"] for c in deps.sync_events.call_args_list] == [first, second]
-    deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 1, player_type="player")
-
-
-def test_records_failure_when_retry_after_reconnect_also_fails():
-    """If the retry after reconnecting also fails, the calendar was not updated, so it is a failure."""
-    deps = make_deps(sync_side_effect=(BrokenPipeError, OSError("still down")), services=[MagicMock(), MagicMock()])
-    run_cycle(ALCARAZ_QUERIES, deps)
-
-    assert deps.sync_events.call_count == 2
-    deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
-    deps.fetch_tracker.record_fetch.assert_not_called()
 
 
 TWO_ENTITY_QUERIES = {
@@ -236,21 +213,10 @@ def test_any_fetch_error_is_recorded_and_the_cycle_continues():
     deps.fetch_tracker.record_fetch.assert_called_once_with("T1", EARLY, 1, player_type="team")
 
 
-def test_run_waits_between_cycles():
-    """run() repeats the cycle and waits MAIN_LOOP_SLEEP_MINUTES after each one."""
-    deps = make_deps(sync_side_effect=(1, 1))
-    start = deps.clock.now()
-
-    run(ALCARAZ_QUERIES, deps, max_cycles=2)
-
-    assert deps.fetch_matches.call_count == 2
-    assert deps.clock.now() - start >= datetime.timedelta(minutes=2 * MAIN_LOOP_SLEEP_MINUTES)
-
-
-# --- what the loop logs at INFO ---
+# --- what a run logs at INFO ---
 
 def test_skipped_entities_are_not_logged_at_info(caplog):
-    """'Skipping' lines are debug: they were ~40% of all journal lines, every 5 minutes."""
+    """'Skipping' lines are debug: they were ~40% of all journal lines, and a run starts every 15 minutes."""
     deps = make_deps(should_fetch=False)
 
     assert run_cycle(ALCARAZ_QUERIES, deps) == 0
@@ -258,18 +224,18 @@ def test_skipped_entities_are_not_logged_at_info(caplog):
 
 
 def test_run_cycle_returns_how_many_entities_it_fetched():
-    """The count lets run() decide whether the cycle is worth a status line."""
+    """The count lets run_once decide whether the run is worth a status line."""
     deps = make_deps()
     assert run_cycle(TWO_ENTITY_QUERIES, deps) == 2
 
 
 @pytest.mark.parametrize("should_fetch, logged", [(True, True), (False, False)])
-def test_status_line_only_after_a_cycle_that_did_work(caplog, should_fetch, logged):
-    """The 'API calls today' line is INFO after a cycle that fetched, and debug after a cycle that only skipped."""
+def test_status_line_only_after_a_run_that_did_work(caplog, should_fetch, logged):
+    """The 'API calls today' line, with the version, is INFO after a run that fetched, and debug after a run that only skipped."""
     deps = make_deps(should_fetch=should_fetch)
-    run(ALCARAZ_QUERIES, deps, max_cycles=1)
+    run_once(ALCARAZ_QUERIES, deps, version="2d89ca8")
 
-    assert ("API calls today: 1/100 · next cycle at" in caplog.text) is logged
+    assert ("API calls today: 1/100 · version 2d89ca8" in caplog.text) is logged
 
 
 
@@ -340,53 +306,7 @@ def test_a_failed_history_write_does_not_turn_a_good_fetch_into_a_failure(caplog
 
 
 
-# --- daily summary and version line ---
-
-DAY_SUMMARY = {"fetches": 25, "with_matches": 5, "empty": 18, "failed": 2, "api_calls": 31, "created": 1, "updated": 3, "deleted": 0}
-
-
-def make_deps_at_midnight(calls_that_day: int) -> LoopDeps:
-    """Deps whose clock starts 3 minutes before midnight, so one 5-minute wait crosses into the next day."""
-    deps = make_deps(should_fetch=False, clock=FakeClock(datetime.datetime(2026, 1, 15, 23, 57, tzinfo=datetime.timezone.utc)))
-    deps.history.day_summary.return_value = DAY_SUMMARY
-    deps.api_tracker.calls_on.return_value = calls_that_day
-    return deps
-
-
-def test_logs_a_summary_of_the_previous_day_after_midnight(caplog):
-    """The first cycle of a new day logs yesterday's totals, read from api_calls.db and fetch_history."""
-    deps = make_deps_at_midnight(calls_that_day=32)
-    run(ALCARAZ_QUERIES, deps, max_cycles=2)
-
-    deps.history.day_summary.assert_called_once_with(datetime.date(2026, 1, 15))
-    assert ("Daily summary for 2026-01-15: 32 API calls; 25 fetches (5 with matches, 18 empty, 2 failed); "
-            "events: 1 created, 3 updated, 0 deleted") in caplog.text
-
-
-def test_daily_summary_warns_above_the_call_ceiling(caplog):
-    """A day above the ceiling is a WARNING, so it shows in `journalctl -p warning`."""
-    deps = make_deps_at_midnight(calls_that_day=API_CALL_CEILING + 5)
-    run(ALCARAZ_QUERIES, deps, max_cycles=2)
-
-    (record,) = [r for r in caplog.records if r.getMessage().startswith("Daily summary")]
-    assert record.levelname == "WARNING"
-    assert f"above the {API_CALL_CEILING}-call ceiling" in record.getMessage()
-
-
-def test_no_summary_while_the_day_has_not_changed():
-    deps = make_deps(should_fetch=False)
-    run(ALCARAZ_QUERIES, deps, max_cycles=2)
-
-    deps.history.day_summary.assert_not_called()
-
-
-def test_a_failed_summary_is_a_warning_and_the_loop_goes_on(caplog):
-    deps = make_deps_at_midnight(calls_that_day=10)
-    deps.history.day_summary.side_effect = OSError("database is locked")
-    run(ALCARAZ_QUERIES, deps, max_cycles=2)
-
-    assert "Could not build the daily summary for 2026-01-15: database is locked" in caplog.text
-
+# --- version ---
 
 def test_current_version_is_the_short_git_commit():
     def fake_git(*args, **kwargs):
@@ -430,15 +350,27 @@ def test_sigterm_handler_exits_with_code_0(caplog):
 PING_URL = "https://hc-ping.com/0f1e2d3c-secret-uuid"
 
 
-def test_run_pings_the_heartbeat_after_each_cycle():
-    """healthchecks.io alerts when the pings stop: a hang, a crash loop or a dead VM."""
+def test_a_run_pings_the_heartbeat_once_at_its_end():
+    """healthchecks.io alerts when the pings stop: a hang, runs that fail again and again, or a dead VM."""
     post = FakePost()
-    deps = make_deps(sync_side_effect=(1, 1))
+    deps = make_deps()
     deps.heartbeat = Heartbeat(PING_URL, post=post)
 
-    run(ALCARAZ_QUERIES, deps, max_cycles=2)
+    run_once(ALCARAZ_QUERIES, deps, version="2d89ca8")
 
-    assert [c["url"] for c in post.calls] == [PING_URL, PING_URL]
+    assert [c["url"] for c in post.calls] == [PING_URL]
+
+
+def test_a_run_stopped_by_a_token_error_sends_no_ping():
+    """Only a run that ends pings; main() sends the fail ping for a token error (stop_for_login)."""
+    post = FakePost()
+    deps = make_deps(sync_side_effect=(RefreshError("invalid_grant"),))
+    deps.heartbeat = Heartbeat(PING_URL, post=post)
+
+    with pytest.raises(RefreshError):
+        run_once(ALCARAZ_QUERIES, deps, version="2d89ca8")
+
+    assert post.calls == []
 
 
 @pytest.mark.parametrize("error", [RefreshError("invalid_grant"), LoginRequired("no token file (token.json)")])
@@ -454,7 +386,8 @@ def test_a_token_error_stops_the_cycle_and_is_not_an_entity_failure(error):
 
 
 def test_stop_for_login_logs_the_steps_sends_a_fail_ping_and_exits_1(caplog):
-    """Exit code 1 makes systemd start the service again every minute, so it recovers once a new token.json is in place."""
+    """Exit code 1 marks the run as failed; the timer starts the next one within 15 minutes, so the service
+    recovers once a new token.json is in place."""
     post = FakePost()
 
     with pytest.raises(SystemExit) as stop:
@@ -469,14 +402,16 @@ def test_stop_for_login_logs_the_steps_sends_a_fail_ping_and_exits_1(caplog):
     assert post.calls[0]["data"].decode() == error_lines[0]
 
 
-@pytest.mark.parametrize("env, enabled, line", [
-    ({"HEALTHCHECK_URL": PING_URL}, True, "Heartbeat on"),
-    ({}, False, "Heartbeat off"),
+@pytest.mark.parametrize("env, enabled, line, level", [
+    ({"HEALTHCHECK_URL": PING_URL}, True, "Heartbeat on", "DEBUG"),
+    ({}, False, "Heartbeat off", "INFO"),
 ])
-def test_make_heartbeat_logs_whether_it_is_on_but_never_the_url(caplog, env, enabled, line):
-    """The start-up line shows on the server whether the .env has the URL. The URL is a secret."""
+def test_make_heartbeat_logs_whether_it_is_on_but_never_the_url(caplog, env, enabled, line, level):
+    """The line shows whether the .env has the URL; "on" is DEBUG, because every run logs it. The URL is a secret."""
+    caplog.set_level(logging.DEBUG)
     heartbeat = make_heartbeat(env)
 
     assert heartbeat.enabled is enabled
-    assert line in caplog.text
+    (record,) = [r for r in caplog.records if r.getMessage().startswith(line)]
+    assert record.levelname == level
     assert "secret-uuid" not in caplog.text
