@@ -508,3 +508,24 @@ def test_reports_what_it_created_updated_and_deleted():
     result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=games)
 
     assert result == SyncResult(event_count=2, created=1, updated=1, deleted=1)
+
+
+# --- update_events: what this app writes, it reads back as up to date ---
+
+@pytest.mark.parametrize("home_team_id, away_team_id", [("h1", "a1"), (None, None)])
+def test_an_event_this_app_wrote_is_up_to_date_at_the_next_sync(home_team_id, away_team_id):
+    """The stored properties are written and compared by the same code, so they cannot drift apart.
+
+    Missing team IDs are stored as '', and a match without them must not look changed at every sync.
+    """
+    match = make_match(home_team_id=home_team_id, away_team_id=away_team_id)
+    written = {**_build_event_body(match, "UTC", UPDATED_AT), "id": "event_written_before"}
+    mock_service = make_mock_service([written])
+
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=[match])
+
+    mock_service.events().update.assert_not_called()
+    mock_service.events().insert.assert_not_called()
+    mock_service.events().delete.assert_not_called()
+    assert result == SyncResult(event_count=1)
+
