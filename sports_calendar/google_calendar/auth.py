@@ -56,12 +56,12 @@ def check_calendar_tokens(token_path: str = "token.json", auth: GoogleAuth | Non
     browser: on the server, the login flow would wait forever for a person who is not there.
     """
     auth = auth or GoogleAuth()
-    logger.info("Checking tokens...")
+    logger.debug("Checking tokens...")
     if not os.path.exists(token_path):
         raise LoginRequired(f"no token file ({token_path})")
     creds = auth.load(token_path)
     if creds.valid:
-        logger.info("Available tokens are valid")
+        logger.debug("Available tokens are valid")
         return creds
     if not (creds.expired and creds.refresh_token):
         raise LoginRequired("the stored token cannot be refreshed")
@@ -71,7 +71,7 @@ def check_calendar_tokens(token_path: str = "token.json", auth: GoogleAuth | Non
         reason = e.args[0] if e.args else e  # str(e) would print the whole tuple of arguments
         raise LoginRequired(f"Google refused to refresh the token: {reason}") from e
     _save(creds, token_path)
-    logger.info("Creds refreshed.")
+    logger.debug("Creds refreshed.")
     return creds
 
 
@@ -89,10 +89,12 @@ def log_in_if_needed(token_path: str = "token.json", credentials_path: str = "cr
                      auth: GoogleAuth | None = None) -> Credentials:
     """Check the stored token, and open the browser login only when the check asks for a login."""
     try:
-        return check_calendar_tokens(token_path, auth)
+        creds = check_calendar_tokens(token_path, auth)
     except LoginRequired as e:
         logger.info(f"Login needed: {e}. Opening the browser login...")
         return log_in(token_path, credentials_path, auth)
+    logger.info("The stored token works: no login needed")  # the token check itself logs at DEBUG, once per service run
+    return creds
 
 
 if __name__ == "__main__":

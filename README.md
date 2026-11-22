@@ -90,10 +90,8 @@ You may add as many Google Calendar IDs as you wish.
 
 > **Note:** To find your Google Calendar ID, go to Google Calendar → Settings → select a calendar → scroll down to "Integrate calendar".
 
-You can adjust the refresh interval and fetch thresholds in `sports_calendar/config.py`. By default they are:
+You can adjust the fetch thresholds in `sports_calendar/config.py`. By default they are:
 ```python
-MAIN_LOOP_SLEEP_MINUTES = 5  # how often the main loop runs
-
 FETCH_THRESHOLDS = {
     "far":           {"days": 7,  "recheck_hours": 48},  # next match is more than 7 days away
     "medium":        {"days": 3,  "recheck_hours": 24},  # next match is 3-7 days away
@@ -153,7 +151,7 @@ To upload `queries.json` and deploy later, or after editing it by hand:
 uv run python -m sports_calendar.tools.push_queries
 ```
 
-It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON) and starts the deploy workflow on `main`, which writes the file to the VM and restarts the service. It runs `gh` as the repository owner's account, not as `gh`'s active account.
+It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON) and starts the deploy workflow on `main`, which writes the file to the VM and starts a run. It runs `gh` as the repository owner's account, not as `gh`'s active account.
 
 ### Running the script
 
@@ -162,7 +160,7 @@ Once you have your IDs, create a `queries.json` file in the root directory and r
 uv run python main.py
 ```
 
-It reads `queries.json`. To read another file, add `--queries <path>`.
+It reads `queries.json`. To read another file, add `--queries <path>`. Each start is one run: it fetches and syncs every team that is due, then exits. On the server, a systemd timer starts a run every 15 minutes (see "Continuous integration").
 
 **`queries.json` format example:**
 ```json
@@ -189,44 +187,48 @@ The `calendar` field should match one of the key names defined in your `.env` fi
 The script logs to stderr. Under systemd the lines go to journald, and each line carries its syslog priority, so you can filter by level:
 
 ```bash
-journalctl -u sports-calendar -f                      # follow the log
+journalctl -u sports-calendar -f                      # follow the log of the runs
 journalctl -u sports-calendar -p warning --since -7d  # only warnings and errors from the last 7 days
+journalctl -u sports-calendar-summary --since -7d     # the daily summaries
+systemctl list-timers 'sports-calendar*'              # when the next run and the next summary start
 ```
 
-At INFO level you see the version (git commit) at startup, each fetch, a one-line summary of the matches found, each event created, updated or deleted, the API call count after a cycle that did work, and after midnight a daily summary of the previous day (API calls, fetches by result, event changes; a WARNING when the calls were above `API_CALL_CEILING`). Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events and skipped teams are logged at DEBUG.
+At INFO level you see each fetch, a one-line summary of the matches found, each event created, updated or deleted, and, after a run that did work, the API call count with the version (git commit). Each day at 00:05, the `sports-calendar-summary` unit logs a summary of the previous day (API calls, fetches by result, event changes; a WARNING when the calls were above `API_CALL_CEILING`); to log it by hand, run `uv run python -m sports_calendar.tools.daily_summary`. systemd adds its own lines for each run (`Starting`, `Finished`, the CPU time), about 4 lines every 15 minutes. Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events, skipped teams, the token check and the heartbeat line are logged at DEBUG.
 
 ### Alerts
 
-The service can report to a free [healthchecks.io](https://healthchecks.io) check. It pings the check after each cycle, every few minutes. When a ping does not come in time, or the service sends a fail ping, healthchecks.io sends you an email. So you hear about a service that hangs, crashes again and again, needs a new Google login, or runs on a server that is down.
+The service can report to a free [healthchecks.io](https://healthchecks.io) check. It pings the check at the end of each run, every 15 minutes. When a ping does not come in time, or the service sends a fail ping, healthchecks.io sends you an email. So you hear about runs that hang or fail again and again, a service that needs a new Google login, or a server that is down.
 
-1. Create a free account at healthchecks.io and add a check. Set the period to 5 minutes (`MAIN_LOOP_SLEEP_MINUTES`) and the grace time to 30 minutes, so that a slow cycle does not cause an alert.
-2. On the server, add the check's ping URL to `.env` as `HEALTHCHECK_URL`, and restart the service. The first log lines then say `Heartbeat on (healthchecks.io)`.
+1. Create a free account at healthchecks.io and add a check. Set the period to 15 minutes (the timer, `deploy/sports-calendar.timer`) and the grace time to 30 minutes, so that a slow run does not cause an alert.
+2. On the server, add the check's ping URL to `.env` as `HEALTHCHECK_URL`. The next run uses it; to run at once, use `sudo systemctl start sports-calendar`. The check on healthchecks.io then shows the ping.
 3. To test the email, send one fail ping by hand: `curl -fsS -X POST <ping URL>/fail`. The next ping from the service sets the check back to up.
 
 Without `HEALTHCHECK_URL` the heartbeat is off. Anyone who has the ping URL can ping the check, so the service never logs it. A failed ping is only a warning in the log.
 
 ### Renewing the Google login
 
-The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), the service logs an ERROR that starts with `Google Calendar login needed`, sends a fail ping, and exits. systemd starts it again every minute (`RestartSec=60`), and each start checks the token again. To renew the token:
+The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), the service logs an ERROR that starts with `Google Calendar login needed`, sends a fail ping, and the run ends as failed. The timer starts the next run within 15 minutes, and each run checks the token again. To renew the token:
 
 1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run python -m sports_calendar.google_calendar.auth`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
 2. Copy it to the server: `scp token.json ubuntu@<server>:/home/ubuntu/sports_calendar_integration/token.json`.
-3. The next start, within a minute, uses it. To check, run `journalctl -u sports-calendar -n 20`: you see `Creds refreshed.` or `Available tokens are valid`, and no new `login needed` error.
+3. The next run, within 15 minutes, uses it. To use it at once and check it, run `sudo systemctl start sports-calendar` on the server: the command returns when the run ends, and it shows an error when the login still fails.
 
 ### Running tests
 ```bash
 uv run pytest -v
 ```
 
-The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths, the heartbeat's HTTP post), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. Only `main()` and `_serve()` in `main.py` build the real ones.
+The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths, the heartbeat's HTTP post), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. Only `main()` and `_build_and_run()` in `main.py`, and the `main()` of each tool, build the real ones.
 
 ### Continuous integration
 
 - `.github/workflows/tests.yml` runs the test suite on every pull request. A ruleset on `main` makes its `test` check required before a merge.
 - `.github/workflows/deploy.yml` runs on every push to `main`, or by hand (Actions → "Deploy to Oracle VM" → Run workflow, on `main`), for example after you change the `QUERIES_JSON_B64` secret. It calls the same test workflow first and deploys to the Oracle VM only if the tests pass. It does not upgrade system packages: `unattended-upgrades` on the VM installs security updates daily.
-- The deploy script stops at the first failed command (`set -e`). It installs the packages with `uv sync --locked --no-dev` before the restart, so a failed install fails the job and the running service is not touched. `--locked` also fails the job when `uv.lock` does not match `pyproject.toml`: run `uv lock` and commit the lock file after each change to the dependencies. The service then starts with `uv run --no-dev`, without pytest and pandas.
-- The systemd unit is versioned in `deploy/sports-calendar.service`. Each deploy installs it to `/etc/systemd/system/` and runs `daemon-reload` before the restart, so change the unit in the repo, not on the VM.
-- On a restart (each deploy, a reboot), systemd stops the service with SIGTERM. The unit sets `KillMode=mixed`, so only `uv` gets the signal and passes it on to Python, which catches it and exits with code 0: systemd logs a clean stop, not a failure. With the default kill mode, Python and `uv` both get SIGTERM at the same moment, and `uv` exits 143 even when Python exits 0.
+- The deploy script stops at the first failed command (`set -e`). It installs the packages with `uv sync --locked --no-dev` before it changes the units, so a failed install fails the job and the timer is not touched. `--locked` also fails the job when `uv.lock` does not match `pyproject.toml`: run `uv lock` and commit the lock file after each change to the dependencies. The service then starts with `uv run --no-dev`, without pytest and pandas.
+- The systemd units are versioned in `deploy/`: `sports-calendar.service` is one run, and `sports-calendar.timer` starts it every 15 minutes; `sports-calendar-summary.service` logs the daily summary, and its timer starts it each day at 00:05 (`Persistent=true`: after a day when the VM was down at 00:05, as soon as it is up). Change the units in the repo, not on the VM.
+- Each deploy stops a run that is in progress, installs the 4 unit files to `/etc/systemd/system/`, runs `daemon-reload`, and enables both timers. Then it starts one run and waits for its end, so a deploy whose run fails (for example a broken token or a crash at the start) also fails the job.
+- The service is `Type=oneshot`. The unit is active while a run lasts, so the timer never starts a second run at the same time. A oneshot has no start timeout by default, so the unit sets `TimeoutStartSec=5min`: a run that hangs is stopped and cannot block the later runs. There is no `Restart=`: the next run retries a failed one.
+- When systemd stops a run (a deploy during a run, a reboot, or a run past `TimeoutStartSec`), it sends SIGTERM. The unit sets `KillMode=mixed`, so only `uv` gets the signal and passes it on to Python, which catches it and exits with code 0: systemd logs a clean stop, not a failure. With the default kill mode, Python and `uv` both get SIGTERM at the same moment, and `uv` exits 143 even when Python exits 0.
 
 ---
 

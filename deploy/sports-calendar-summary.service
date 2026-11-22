@@ -1,0 +1,11 @@
+# systemd unit for the Oracle VM: log yesterday's totals (API calls, fetches, calendar changes).
+# deploy/sports-calendar-summary.timer starts it each day.
+[Unit]
+Description=Sports Calendar Integration daily summary
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/sports_calendar_integration
+ExecStart=/home/ubuntu/.local/bin/uv run --no-dev python -m sports_calendar.tools.daily_summary
+TimeoutStartSec=5min

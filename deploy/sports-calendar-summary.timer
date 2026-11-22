@@ -1,0 +1,11 @@
+# Starts deploy/sports-calendar-summary.service each day at 00:05 (the VM's local time zone, UTC).
+# Persistent=true: after a day when the VM was down at 00:05, it runs as soon as the VM is up again.
+[Unit]
+Description=Sports Calendar Integration daily summary at 00:05
+
+[Timer]
+OnCalendar=*-*-* 00:05:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -13,8 +13,6 @@ FETCH_THRESHOLDS = {
     "failed":        {"recheck_hours": 1, "max_recheck_hours": 8}  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h
 }
 
-MAIN_LOOP_SLEEP_MINUTES = 5
-
 # The AllSports free tier allows 100 calls per day, a hard limit. Normal use should not often go above 70 calls
 # per day (API_CALL_CEILING), which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the
 # ceiling when you change FETCH_THRESHOLDS or add teams (`uv run python -m sports_calendar.tools.db_stats avg_daily_calls`).
