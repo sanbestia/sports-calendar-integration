@@ -199,7 +199,7 @@ At INFO level you see each fetch, a one-line summary of the matches found, each 
 
 The service can report to a free [healthchecks.io](https://healthchecks.io) check. It pings the check at the end of each run, every 15 minutes. When a ping does not come in time, or the service sends a fail ping, healthchecks.io sends you an email. So you hear about runs that hang or fail again and again, a service that needs a new Google login, or a server that is down.
 
-1. Create a free account at healthchecks.io and add a check. Set the period to 15 minutes (the timer, `deploy/sports-calendar.timer`) and the grace time to 30 minutes, so that a slow run does not cause an alert.
+1. Create a free account at healthchecks.io and add a check. Set the period to 15 minutes (the timer, `deploy/sports-calendar.timer`) and the grace time to 1 hour, so that a few slow or failed runs do not cause an alert. A Google login failure still alerts at once, with its fail ping.
 2. On the server, add the check's ping URL to `.env` as `HEALTHCHECK_URL`. The next run uses it; to run at once, use `sudo systemctl start sports-calendar`. The check on healthchecks.io then shows the ping.
 3. To test the email, send one fail ping by hand: `curl -fsS -X POST <ping URL>/fail`. The next ping from the service sets the check back to up.
 
