@@ -4,7 +4,7 @@ import datetime
 from unittest.mock import MagicMock
 from sports_calendar.config import MAIN_LOOP_SLEEP_MINUTES
 from sports_calendar.google_calendar.sync import SyncResult
-from main import (load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version,
+from main import (load_queries, run_cycle, run, LoopDeps, CalendarConnection, current_version,
                   install_stop_handler, make_heartbeat, stop_for_login)
 from google.auth.exceptions import RefreshError
 from sports_calendar.google_calendar.auth import LoginRequired
@@ -12,7 +12,7 @@ from sports_calendar.heartbeat import Heartbeat
 import signal
 import subprocess
 from sports_calendar.config import API_CALL_CEILING
-from tests.fakes import FakeClock, FakeSession, FakePost, ScriptedInput, make_client
+from tests.fakes import FakeClock, FakePost
 
 
 FAKE_RAW_QUERIES = {
@@ -74,49 +74,6 @@ def test_load_queries_raises_when_required_field_missing(tmp_path):
     incomplete = {"T1": {"id": "364366", "sport": "esport", "calendar": "CALENDAR_ID_ESPORTS"}}
     with pytest.raises(ValueError, match="'T1' is missing required fields: player_type"):
         load_queries(write_queries(tmp_path, incomplete), env=FAKE_ENV)
-
-
-# --- build_queries_from_get_ids tests ---
-
-SPURS_SEARCH = {"results": [{"entity": {"id": 3429, "name": "San Antonio Spurs", "gender": "M"}}]}
-ALCARAZ_SEARCH = {"results": [{"entity": {"id": 275923, "name": "Carlos Alcaraz", "gender": "M", "playerTeamInfo": {"birthDateTimestamp": 0}}}]}
-T1_SEARCH = {"results": [{"entity": {"id": 364366, "name": "T1"}}]}
-
-
-def test_build_queries_returns_correct_structure():
-    """Search, confirm, and the calendar ID answer become one query entry."""
-    client = make_client(FakeSession(SPURS_SEARCH))
-    ask = ScriptedInput("San Antonio Spurs", "basketball", "Y", "N", "real_basketball_calendar_id")
-
-    result = build_queries_from_get_ids(client, ask=ask)
-
-    assert result == {"San Antonio Spurs": {
-        "id": "3429", "sport": "basketball", "player_type": "team", "calendar": "real_basketball_calendar_id"
-    }}
-    assert ask.prompts[-1] == "Enter calendar id for San Antonio Spurs: "
-
-
-def test_build_queries_preserves_player_type_for_player():
-    """A player hit keeps player_type 'player'."""
-    client = make_client(FakeSession(ALCARAZ_SEARCH))
-    ask = ScriptedInput("Carlos Alcaraz", "tennis", "Y", "N", "real_tennis_calendar_id")
-
-    result = build_queries_from_get_ids(client, ask=ask)
-
-    assert result["Carlos Alcaraz"]["player_type"] == "player"
-
-
-def test_build_queries_handles_multiple_entries():
-    """Two searches give two entries, each with its own calendar ID."""
-    client = make_client(FakeSession(SPURS_SEARCH, T1_SEARCH))
-    ask = ScriptedInput("San Antonio Spurs", "basketball", "Y", "Y", "T1", "esport", "Y", "N",
-                        "real_basketball_calendar_id", "real_esports_calendar_id")
-
-    result = build_queries_from_get_ids(client, ask=ask)
-
-    assert {name: q["calendar"] for name, q in result.items()} == {
-        "San Antonio Spurs": "real_basketball_calendar_id", "T1": "real_esports_calendar_id"
-    }
 
 
 # --- run_cycle / run tests ---

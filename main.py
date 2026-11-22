@@ -16,7 +16,6 @@ from googleapiclient.discovery import build
 from sports_calendar.google_calendar.auth import check_calendar_tokens, TOKEN_ERRORS
 from sports_calendar.google_calendar.sync import update_events, SyncResult
 from sports_calendar.allsports.matches import get_next_matches
-from sports_calendar.tools.get_ids import get_ids
 from sports_calendar.queries_file import REQUIRED_QUERY_FIELDS
 from sports_calendar.log_setup import configure_logging
 from sports_calendar.utils import wait
@@ -51,21 +50,6 @@ def load_queries(filepath: str, env: Mapping[str, str] = os.environ) -> dict:
         data["calendar"] = resolved  # replace the env var key with the actual calendar ID so callers get the resolved value
 
     return raw
-
-
-def build_queries_from_get_ids(client: AllSportsClient, ask: Callable[[str], str] = input) -> dict:
-    """Interactively build queries using get_ids(), prompting for calendar IDs."""
-    id_dict = get_ids(client, ask=ask)
-    queries = {}
-    for team_id, data in id_dict.items():
-        calendar_id = ask(f"Enter calendar id for {data['name']}: ")
-        queries[data["name"]] = {
-            "id": team_id,
-            "sport": data["sport"],
-            "player_type": data["player_type"],
-            "calendar": calendar_id
-        }
-    return queries
 
 
 class CalendarConnection:
@@ -284,7 +268,7 @@ def stop_for_login(error: Exception, heartbeat: Heartbeat) -> NoReturn:
     raise SystemExit(1)
 
 
-def _serve(queries_path: str | None, heartbeat: Heartbeat) -> None:
+def _serve(queries_path: str, heartbeat: Heartbeat) -> None:
     """Build the real collaborators and run the loop forever."""
     tz = get_localzone()
     clock = Clock()
@@ -292,10 +276,7 @@ def _serve(queries_path: str | None, heartbeat: Heartbeat) -> None:
     api_tracker = APICallTracker(clock=clock)
     client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=api_tracker)
 
-    if queries_path:
-        queries = load_queries(queries_path)
-    else:
-        queries = build_queries_from_get_ids(client)
+    queries = load_queries(queries_path)
 
     deps = LoopDeps(
         client=client,
@@ -325,8 +306,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--queries",
         type=str,
-        help="Path to a JSON file containing search queries",
-        default=None
+        help="Path to the JSON file with the teams and players to track (default: queries.json)",
+        default="queries.json"
     )
     args = parser.parse_args(argv)
 

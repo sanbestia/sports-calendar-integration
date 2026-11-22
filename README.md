@@ -155,12 +155,14 @@ uv run python -m sports_calendar.tools.push_queries
 
 It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON) and starts the deploy workflow on `main`, which writes the file to the VM and restarts the service. It runs `gh` as the repository owner's account, not as `gh`'s active account.
 
-### Running the script with a predefined query file
+### Running the script
 
 Once you have your IDs, create a `queries.json` file in the root directory and run:
 ```bash
-uv run python main.py --queries queries.json
+uv run python main.py
 ```
+
+It reads `queries.json`. To read another file, add `--queries <path>`.
 
 **`queries.json` format example:**
 ```json
@@ -181,15 +183,6 @@ uv run python main.py --queries queries.json
 ```
 
 The `calendar` field should match one of the key names defined in your `.env` file. The `player_type` field should be `"player"` for individuals or `"team"` for organizations.
-
-### Running the script in interactive mode
-
-Run without arguments to search for teams and players interactively, without needing a `queries.json` file:
-```bash
-uv run python main.py
-```
-
-You will be prompted to enter team/player names, select from results, and provide calendar IDs. This uses the same search flow as `get_ids` but feeds directly into the main loop.
 
 ### Reading the logs
 
