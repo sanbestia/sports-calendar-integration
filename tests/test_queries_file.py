@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from sports_calendar.queries_file import QueryError, add_query, calendar_keys, read_queries
+from sports_calendar.queries_file import QueryError, add_query, calendar_keys, load_queries, read_queries
 
 EXISTING = {
     "San Antonio Spurs": {"id": "3429", "sport": "basketball", "player_type": "team", "calendar": "CALENDAR_ID_BASKETBALL"},
@@ -76,3 +76,70 @@ def test_add_query_refuses_an_entity_that_is_already_tracked(queries_path):
 def test_add_query_refuses_a_name_that_is_already_used(queries_path):
     with pytest.raises(QueryError, match="'T1' is already in"):
         add_query(queries_path, "T1", LAKERS, "CALENDAR_ID_BASKETBALL", env=ENV)
+
+
+# --- load_queries: the entries for a run ---
+
+FAKE_RAW_QUERIES = {
+    "San Antonio Spurs": {
+        "id": "3429",
+        "sport": "basketball",
+        "player_type": "team",
+        "calendar": "CALENDAR_ID_BASKETBALL"
+    },
+    "T1": {
+        "id": "364366",
+        "sport": "esport",
+        "player_type": "team",
+        "calendar": "CALENDAR_ID_ESPORTS"
+    }
+}
+
+
+FAKE_ENV = {
+    "CALENDAR_ID_BASKETBALL": "real_basketball_calendar_id",
+    "CALENDAR_ID_ESPORTS": "real_esports_calendar_id",
+}
+
+
+def write_queries(tmp_path, queries: dict) -> str:
+    """Write a queries file and return its path."""
+    path = tmp_path / "queries.json"
+    path.write_text(json.dumps(queries))
+    return str(path)
+
+
+def test_load_queries_resolves_env_variables(tmp_path):
+    """Resolves calendar env keys to actual IDs from the given environment."""
+    result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), FAKE_ENV)
+
+    assert result["San Antonio Spurs"]["calendar"] == "real_basketball_calendar_id"
+    assert result["T1"]["calendar"] == "real_esports_calendar_id"
+
+
+def test_load_queries_raises_when_env_variable_missing(tmp_path):
+    """Raises ValueError when a calendar env key is not set."""
+    with pytest.raises(ValueError, match="CALENDAR_ID_BASKETBALL"):
+        load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), {})
+
+
+def test_load_queries_preserves_other_fields(tmp_path):
+    """Preserves id, sport and player_type fields after loading."""
+    result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), FAKE_ENV)
+
+    assert result["San Antonio Spurs"]["id"] == "3429"
+    assert result["San Antonio Spurs"]["sport"] == "basketball"
+    assert result["San Antonio Spurs"]["player_type"] == "team"
+
+
+def test_load_queries_raises_when_required_field_missing(tmp_path):
+    """Names the query and the missing field when an entry is incomplete."""
+    incomplete = {"T1": {"id": "364366", "sport": "esport", "calendar": "CALENDAR_ID_ESPORTS"}}
+    with pytest.raises(ValueError, match="'T1' is missing required fields: player_type"):
+        load_queries(write_queries(tmp_path, incomplete), FAKE_ENV)
+
+
+def test_load_queries_raises_when_the_file_is_missing(tmp_path):
+    """Unlike read_queries (add_entity starts a new file), a run must not pass as fine with nothing to track."""
+    with pytest.raises(FileNotFoundError):
+        load_queries(str(tmp_path / "queries.json"), FAKE_ENV)
