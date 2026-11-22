@@ -42,6 +42,20 @@ FAKE_NEXT_RESPONSE_PAGE_2 = {
 
 # --- Tests ---
 
+@pytest.mark.parametrize("time_zone, utc_offset_hours", [
+    ("Etc/UTC", 0),                          # the server's zone, as tzlocal names it
+    ("America/Argentina/Buenos_Aires", -3),
+    ("Europe/Madrid", 1),                    # winter time on 6 March
+])
+def test_start_time_is_the_api_timestamp_in_the_given_time_zone(time_zone, utc_offset_hours):
+    """The same moment as startTimestamp (2026-03-06 19:00 UTC), with the offset of the given zone."""
+    session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
+    [match] = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", time_zone)
+
+    assert match.start_time == datetime.datetime(2026, 3, 6, 19, 0, tzinfo=datetime.timezone.utc)
+    assert match.start_time.utcoffset() == datetime.timedelta(hours=utc_offset_hours)
+
+
 def test_returns_list_of_matches():
     """'next' endpoint returns one page of results."""
     session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
