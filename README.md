@@ -48,6 +48,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 ```bash
     uv sync
 ```
+   This also installs the `dev` group: pytest, and pandas for `functions/db_stats.py` (the `stats` group, which `dev` includes). The service itself needs neither.
 
 3. Set up your environment variables (see [Configuration](#configuration))
 
@@ -230,6 +231,7 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 
 - `.github/workflows/tests.yml` runs the test suite on every pull request. A ruleset on `main` makes its `test` check required before a merge.
 - `.github/workflows/deploy.yml` runs on every push to `main`, or by hand (Actions → "Deploy to Oracle VM" → Run workflow, on `main`), for example after you change the `QUERIES_JSON_B64` secret. It calls the same test workflow first and deploys to the Oracle VM only if the tests pass. It does not upgrade system packages: `unattended-upgrades` on the VM installs security updates daily.
+- The deploy script stops at the first failed command (`set -e`). It installs the packages with `uv sync --locked --no-dev` before the restart, so a failed install fails the job and the running service is not touched. `--locked` also fails the job when `uv.lock` does not match `pyproject.toml`: run `uv lock` and commit the lock file after each change to the dependencies. The service then starts with `uv run --no-dev`, without pytest and pandas.
 - The systemd unit is versioned in `deploy/sports-calendar.service`. Each deploy installs it to `/etc/systemd/system/` and runs `daemon-reload` before the restart, so change the unit in the repo, not on the VM.
 - On a restart (each deploy, a reboot), systemd stops the service with SIGTERM. The unit sets `KillMode=mixed`, so only `uv` gets the signal and passes it on to Python, which catches it and exits with code 0: systemd logs a clean stop, not a failure. With the default kill mode, Python and `uv` both get SIGTERM at the same moment, and `uv` exits 143 even when Python exits 0.
 
@@ -237,7 +239,7 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 
 ## Database Analytics
 
-`functions/db_stats.py` provides read-only functions for querying both databases (`api_calls.db` and `fetch_log.db`). It can be used in two ways:
+`functions/db_stats.py` provides read-only functions for querying both databases (`api_calls.db` and `fetch_log.db`). It needs pandas (the `stats` group). A plain `uv run` installs it with the `dev` group, also on the server, where the next deploy removes it again. It can be used in two ways:
 
 **As a CLI** — call any function by name, with optional positional arguments:
 ```bash

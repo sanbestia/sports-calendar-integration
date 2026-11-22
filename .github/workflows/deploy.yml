@@ -32,9 +32,13 @@ jobs:
           username: ubuntu
           key: ${{ secrets.ORACLE_VM_SSH_KEY }}
           script: |
+            # stop at the first failed command, so the job fails and the service keeps running
+            set -e
             cd /home/ubuntu/sports_calendar_integration
             git fetch origin main
             git reset --hard origin/main
+            # install the packages here, not at the service start; --locked fails on a uv.lock that does not match pyproject.toml
+            /home/ubuntu/.local/bin/uv sync --locked --no-dev
             sudo install -m 644 deploy/sports-calendar.service /etc/systemd/system/sports-calendar.service
             sudo systemctl daemon-reload
             sudo systemctl restart sports-calendar
