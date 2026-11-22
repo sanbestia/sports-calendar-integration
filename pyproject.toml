@@ -21,7 +21,7 @@ dev = [
     "pytest>=8.0.0",
     {include-group = "stats"},
 ]
-stats = [  # functions/db_stats.py
+stats = [  # sports_calendar/tools/db_stats.py
     "pandas>=3.0.1",
 ]
 

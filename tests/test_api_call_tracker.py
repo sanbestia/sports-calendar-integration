@@ -1,5 +1,5 @@
 import pytest
-from objects.APICallTracker import APICallTracker
+from sports_calendar.storage.api_calls import APICallTracker
 from tests.fakes import FakeClock
 
 
@@ -79,7 +79,7 @@ def test_status_returns_correct_string():
 
 def test_daily_limit_comes_from_config():
     """Daily limit is loaded from config."""
-    from config import MAX_API_CALLS
+    from sports_calendar.config import MAX_API_CALLS
     tracker = make_tracker()
     assert tracker.daily_limit == MAX_API_CALLS
 

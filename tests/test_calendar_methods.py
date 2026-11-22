@@ -2,8 +2,8 @@ import datetime
 import pytest
 from unittest.mock import MagicMock
 from googleapiclient.errors import HttpError
-from objects.Match import Match
-from functions.calendar_methods import update_events, _build_event_body, SyncResult
+from sports_calendar.match import Match
+from sports_calendar.google_calendar.sync import update_events, _build_event_body, SyncResult
 from tests.fakes import FakeClock
 
 

@@ -1,5 +1,5 @@
 import datetime
-from config import GRAND_SLAM_TOURNAMENTS, SPORT_DURATIONS
+from sports_calendar.config import GRAND_SLAM_TOURNAMENTS, SPORT_DURATIONS
 
 
 class Match:

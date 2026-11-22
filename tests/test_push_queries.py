@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from functions.push_queries import push_queries
+from sports_calendar.tools.push_queries import push_queries
 
 QUERIES = {"Los Angeles Lakers": {"id": "3427", "sport": "basketball", "player_type": "team", "calendar": "CALENDAR_ID_BASKETBALL"}}
 

@@ -1,6 +1,6 @@
 import datetime
 import pytest
-from functions.utils import sanitize_for_log, wait
+from sports_calendar.utils import sanitize_for_log, wait
 from tests.fakes import FakeClock
 
 

@@ -1,17 +1,17 @@
 """Add teams or players to queries.json in one go: search, choose the calendar, save, and optionally deploy.
 
-Run it as `uv run python -m functions.add_entity`. It only connects other functions:
+Run it as `uv run python -m sports_calendar.tools.add_entity`. It only connects other functions:
 get_ids (search and pick) -> add_query (check and save) -> push_queries (secret + deploy).
 """
 import logging
 import os
 from collections.abc import Callable, Mapping
 
-from functions.get_ids import get_ids
-from functions.push_queries import push_queries
-from functions.queries_file import QueryError, add_query, calendar_keys, read_queries
-from functions.utils import _ask_yes_no
-from objects.AllSportsClient import AllSportsClient
+from sports_calendar.tools.get_ids import get_ids
+from sports_calendar.tools.push_queries import push_queries
+from sports_calendar.queries_file import QueryError, add_query, calendar_keys, read_queries
+from sports_calendar.utils import _ask_yes_no
+from sports_calendar.allsports.client import AllSportsClient
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +58,14 @@ def add_entities(client: AllSportsClient, queries_path: str, env: Mapping[str, s
     if added and _ask_yes_no("Upload queries.json and deploy now? Y/N: ", ask):
         push(queries_path)
     elif added:
-        logger.info("Not deployed. Run `uv run python -m functions.push_queries` when you are ready.")
+        logger.info("Not deployed. Run `uv run python -m sports_calendar.tools.push_queries` when you are ready.")
     return added
 
 
 def main() -> None:
     """Entry point: build the real client from .env and run the flow on ./queries.json."""
     from dotenv import load_dotenv
-    from objects.APICallTracker import APICallTracker
+    from sports_calendar.storage.api_calls import APICallTracker
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     load_dotenv()
     client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=APICallTracker())

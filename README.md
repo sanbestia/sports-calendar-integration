@@ -48,7 +48,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 ```bash
     uv sync
 ```
-   This also installs the `dev` group: pytest, and pandas for `functions/db_stats.py` (the `stats` group, which `dev` includes). The service itself needs neither.
+   This also installs the `dev` group: pytest, and pandas for `sports_calendar/tools/db_stats.py` (the `stats` group, which `dev` includes). The service itself needs neither.
 
 3. Set up your environment variables (see [Configuration](#configuration))
 
@@ -66,7 +66,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 
 4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**. Choose **Desktop app**, give it a name, and download the resulting file. Rename it to `credentials.json` and place it in the root directory of the project.
 
-5. Log in once, on a computer with a browser: run `uv run python -m functions.check_calendar_tokens`. A browser window asks you to authorise the app with your Google account. After you confirm, a `token.json` file is created, and later runs reuse it. The service itself never opens a browser: without a valid `token.json` it logs an error and stops (see [Renewing the Google login](#renewing-the-google-login)).
+5. Log in once, on a computer with a browser: run `uv run python -m sports_calendar.google_calendar.auth`. A browser window asks you to authorise the app with your Google account. After you confirm, a `token.json` file is created, and later runs reuse it. The service itself never opens a browser: without a valid `token.json` it logs an error and stops (see [Renewing the Google login](#renewing-the-google-login)).
 
 > **Note:** If you see a "Google hasn't verified this app" warning, click **Advanced → Go to (app name)** to proceed. This appears because Google has not verified the app, and is expected behaviour.
 
@@ -90,7 +90,7 @@ You may add as many Google Calendar IDs as you wish.
 
 > **Note:** To find your Google Calendar ID, go to Google Calendar → Settings → select a calendar → scroll down to "Integrate calendar".
 
-You can adjust the refresh interval and fetch thresholds in `config.py`. By default they are:
+You can adjust the refresh interval and fetch thresholds in `sports_calendar/config.py`. By default they are:
 ```python
 MAIN_LOOP_SLEEP_MINUTES = 5  # how often the main loop runs
 
@@ -117,7 +117,7 @@ When a team has no upcoming match, it is checked every `unknown.recheck_hours` f
 
 A failed fetch (a timeout, an unreadable response, or a Calendar error) is not treated as "no matches". The team is retried after `failed.recheck_hours`, and the wait doubles for each failure in a row up to `failed.max_recheck_hours`, so one broken team cannot use the daily API budget. A successful fetch returns the team to its normal schedule. An error for one team is logged and does not stop the service or the other teams.
 
-The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit). Normal use should not often go above 70 calls per day (`API_CALL_CEILING`), which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the ceiling when you change `FETCH_THRESHOLDS` or add teams (`uv run python functions/db_stats.py avg_daily_calls`).
+The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit). Normal use should not often go above 70 calls per day (`API_CALL_CEILING`), which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the ceiling when you change `FETCH_THRESHOLDS` or add teams (`uv run python -m sports_calendar.tools.db_stats avg_daily_calls`).
 
 ### Local state files
 
@@ -132,7 +132,7 @@ On first run, the program automatically creates two SQLite database files in the
 The `id` values in `queries.json` come from the AllSports API. To look them up, run `get_ids` as a standalone script:
 
 ```bash
-uv run python -m functions.get_ids
+uv run python -m sports_calendar.tools.get_ids
 ```
 
 You will be prompted to enter a name and sport, shown a list of matches to choose from, and asked to confirm your selection. At the end, the script prints a summary of all selected entries with their IDs. API calls made during the search are tracked against your daily limit. Like the main script, it reads `RAPIDAPI_KEY` from `.env`.
@@ -142,7 +142,7 @@ You will be prompted to enter a name and sport, shown a list of matches to choos
 To add an entry to `queries.json` without editing the file by hand:
 
 ```bash
-uv run python -m functions.add_entity
+uv run python -m sports_calendar.tools.add_entity
 ```
 
 It runs the same search as `get_ids`. For each entity you pick, it asks for the name to use in `queries.json` (Enter keeps the API name) and for the calendar: one of the env keys the file already uses, or another key from `.env`. It refuses an entry whose calendar key is not set in `.env`, a name that is already in the file, and an entity (same id and sport) that is already tracked. At the end it offers to upload the file and deploy.
@@ -150,7 +150,7 @@ It runs the same search as `get_ids`. For each entity you pick, it asks for the 
 To upload `queries.json` and deploy later, or after editing it by hand:
 
 ```bash
-uv run python -m functions.push_queries
+uv run python -m sports_calendar.tools.push_queries
 ```
 
 It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON) and starts the deploy workflow on `main`, which writes the file to the VM and restarts the service. It runs `gh` as the repository owner's account, not as `gh`'s active account.
@@ -216,7 +216,7 @@ Without `HEALTHCHECK_URL` the heartbeat is off. Anyone who has the ping URL can 
 
 The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), the service logs an ERROR that starts with `Google Calendar login needed`, sends a fail ping, and exits. systemd starts it again every minute (`RestartSec=60`), and each start checks the token again. To renew the token:
 
-1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run python -m functions.check_calendar_tokens`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
+1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run python -m sports_calendar.google_calendar.auth`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
 2. Copy it to the server: `scp token.json ubuntu@<server>:/home/ubuntu/sports_calendar_integration/token.json`.
 3. The next start, within a minute, uses it. To check, run `journalctl -u sports-calendar -n 20`: you see `Creds refreshed.` or `Available tokens are valid`, and no new `login needed` error.
 
@@ -239,20 +239,20 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 
 ## Database Analytics
 
-`functions/db_stats.py` provides read-only functions for querying both databases (`api_calls.db` and `fetch_log.db`). It needs pandas (the `stats` group). A plain `uv run` installs it with the `dev` group, also on the server, where the next deploy removes it again. It can be used in two ways:
+`sports_calendar/tools/db_stats.py` provides read-only functions for querying both databases (`api_calls.db` and `fetch_log.db`). It needs pandas (the `stats` group). A plain `uv run` installs it with the `dev` group, also on the server, where the next deploy removes it again. It can be used in two ways:
 
 **As a CLI** — call any function by name, with optional positional arguments:
 ```bash
-uv run python functions/db_stats.py                        # list all available functions
-uv run python functions/db_stats.py calls_today
-uv run python functions/db_stats.py stale_teams 24
-uv run python functions/db_stats.py calls_in_range 2026-01-01 2026-01-31
-uv run python functions/db_stats.py calls_per_entity 7      # API calls per team over the last 7 days
+uv run python -m sports_calendar.tools.db_stats                        # list all available functions
+uv run python -m sports_calendar.tools.db_stats calls_today
+uv run python -m sports_calendar.tools.db_stats stale_teams 24
+uv run python -m sports_calendar.tools.db_stats calls_in_range 2026-01-01 2026-01-31
+uv run python -m sports_calendar.tools.db_stats calls_per_entity 7      # API calls per team over the last 7 days
 ```
 
 **As a module** — import directly in a Python script or notebook:
 ```python
-from functions.db_stats import (
+from sports_calendar.tools.db_stats import (
     calls_today, remaining_calls_today, calls_on, calls_in_range,
     days_at_max, pct_days_at_max, avg_daily_calls,
     busiest_days, calls_per_period, api_budget_forecast,

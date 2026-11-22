@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 from googleapiclient.errors import HttpError
-from functions.calendar_methods import _execute_with_retry, _MAX_RETRIES
+from sports_calendar.google_calendar.sync import _execute_with_retry, _MAX_RETRIES
 from tests.fakes import FakeClock
 
 

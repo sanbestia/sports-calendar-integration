@@ -2,8 +2,8 @@ import pytest
 import requests
 from unittest.mock import MagicMock
 
-from objects.AllSportsClient import AllSportsClient, AllSportsError, BASE_URL
-from objects.schemas import SearchResponse
+from sports_calendar.allsports.client import AllSportsClient, AllSportsError, BASE_URL
+from sports_calendar.allsports.schemas import SearchResponse
 from tests.fakes import FakeSession, make_client
 
 ONE_RESULT = {"results": [{"entity": {"id": 3427, "name": "Los Angeles Lakers", "gender": "M"}}]}

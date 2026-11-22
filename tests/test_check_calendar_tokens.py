@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 from google.auth.exceptions import RefreshError
-from functions.check_calendar_tokens import check_calendar_tokens, log_in, log_in_if_needed, LoginRequired
+from sports_calendar.google_calendar.auth import check_calendar_tokens, log_in, log_in_if_needed, LoginRequired
 from tests.fakes import FakeAuth
 
 

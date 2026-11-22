@@ -1,9 +1,9 @@
 import logging
 from datetime import datetime, timedelta
 
-from config import FETCH_THRESHOLDS
-from objects.Clock import Clock
-from objects.SqliteStore import SqliteStore
+from sports_calendar.config import FETCH_THRESHOLDS
+from sports_calendar.clock import Clock
+from sports_calendar.storage.sqlite_store import SqliteStore
 
 logger = logging.getLogger(__name__)
 

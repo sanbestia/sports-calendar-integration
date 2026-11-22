@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from tests.fakes import FakeSession, make_client
 
 INVALID_JSON = "<html>Internal Server Error</html>"
-from functions.search_entity import search_entity, pick_entity
+from sports_calendar.allsports.search import search_entity, pick_entity
 from tests.fakes import ScriptedInput
 
 
@@ -231,7 +231,7 @@ def test_pick_entity_returns_correct_hit_when_second_option_chosen():
 
 # --- _ask_yes_no tests ---
 
-from functions.utils import _ask_yes_no
+from sports_calendar.utils import _ask_yes_no
 
 def test_ask_yes_no_returns_true_on_y():
     assert _ask_yes_no("Continue? Y/N: ", ask=ScriptedInput("Y")) is True

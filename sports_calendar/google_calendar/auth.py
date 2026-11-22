@@ -1,5 +1,5 @@
 # check validity of stored tokens
-# a new token comes only from the browser login: `uv run python -m functions.check_calendar_tokens`
+# a new token comes only from the browser login: `uv run python -m sports_calendar.google_calendar.auth`
 
 import logging
 import os.path
@@ -9,7 +9,7 @@ from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-from functions.log_setup import configure_logging
+from sports_calendar.log_setup import configure_logging
 
 # If modifying these scopes, delete the file token.json.
 SCOPES: list[str] = ["https://www.googleapis.com/auth/calendar"]

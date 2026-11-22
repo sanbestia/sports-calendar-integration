@@ -13,24 +13,24 @@ from dotenv import load_dotenv
 from tzlocal import get_localzone
 from googleapiclient.discovery import build
 
-from functions.check_calendar_tokens import check_calendar_tokens, TOKEN_ERRORS
-from functions.calendar_methods import update_events, SyncResult
-from functions.get_next_matches import get_next_matches
-from functions.get_ids import get_ids
-from functions.queries_file import REQUIRED_QUERY_FIELDS
-from functions.log_setup import configure_logging
-from functions.utils import wait
-from objects.APICallTracker import APICallTracker
-from objects.AllSportsClient import AllSportsClient
-from objects.FetchTracker import FetchTracker
-from objects.FetchHistory import FetchHistory
-from objects.Clock import Clock
-from objects.Heartbeat import Heartbeat
-from config import MAIN_LOOP_SLEEP_MINUTES, API_CALL_CEILING
+from sports_calendar.google_calendar.auth import check_calendar_tokens, TOKEN_ERRORS
+from sports_calendar.google_calendar.sync import update_events, SyncResult
+from sports_calendar.allsports.matches import get_next_matches
+from sports_calendar.tools.get_ids import get_ids
+from sports_calendar.queries_file import REQUIRED_QUERY_FIELDS
+from sports_calendar.log_setup import configure_logging
+from sports_calendar.utils import wait
+from sports_calendar.storage.api_calls import APICallTracker
+from sports_calendar.allsports.client import AllSportsClient
+from sports_calendar.storage.fetch_tracker import FetchTracker
+from sports_calendar.storage.fetch_history import FetchHistory
+from sports_calendar.clock import Clock
+from sports_calendar.heartbeat import Heartbeat
+from sports_calendar.config import MAIN_LOOP_SLEEP_MINUTES, API_CALL_CEILING
 
 logger = logging.getLogger(__name__)
 
-RELOGIN_STEPS = ("To renew it: on a computer with a browser, run `uv run python -m functions.check_calendar_tokens` "
+RELOGIN_STEPS = ("To renew it: on a computer with a browser, run `uv run python -m sports_calendar.google_calendar.auth` "
                  "in the repo, then copy the new token.json into the service's folder on the server. The service starts "
                  "again every minute, so it picks up the file by itself (README: 'Renewing the Google login').")
 

@@ -5,7 +5,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'objects'))
 
-from objects.Match import Match
+from sports_calendar.match import Match
 
 # A fixed start time to use across all tests
 START_TIME = datetime.datetime(2025, 6, 15, 14, 0, 0, tzinfo=datetime.timezone.utc)

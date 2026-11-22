@@ -3,7 +3,7 @@ import re
 import logging
 from collections.abc import Callable
 
-from objects.Clock import Clock
+from sports_calendar.clock import Clock
 
 logger = logging.getLogger(__name__)
 

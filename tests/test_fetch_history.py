@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 
-from objects.FetchHistory import FetchHistory
+from sports_calendar.storage.fetch_history import FetchHistory
 from tests.fakes import FakeClock
 
 _created: list[FetchHistory] = []

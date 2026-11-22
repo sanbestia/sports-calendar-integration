@@ -1,11 +1,5 @@
 import os
 import sys
-
-# When run directly, the script's directory (functions/) is on sys.path, not the project root.
-# This must happen before the project-relative imports below.
-if __name__ == "__main__":
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import inspect
 import logging
 import sqlite3
@@ -15,9 +9,9 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
-from config import MAX_API_CALLS, FETCH_THRESHOLDS
-from objects.APICallTracker import DB_FILE as API_CALLS_DB
-from objects.FetchTracker import DB_FILE as FETCH_LOG_DB
+from sports_calendar.config import MAX_API_CALLS, FETCH_THRESHOLDS
+from sports_calendar.storage.api_calls import DB_FILE as API_CALLS_DB
+from sports_calendar.storage.fetch_tracker import DB_FILE as FETCH_LOG_DB
 
 
 @contextmanager
@@ -232,7 +226,7 @@ def teams_due_now(db_path: str = FETCH_LOG_DB) -> list[str]:
 
     Reuses FetchTracker's threshold logic so results match actual scheduler behaviour.
     """
-    from objects.FetchTracker import FetchTracker
+    from sports_calendar.storage.fetch_tracker import FetchTracker
     tracker = FetchTracker(db_path=db_path)
     df = all_fetches_df(db_path, raw=True)  # raw=True; team_name column is unaffected by formatting
     return [name for name in df["team_name"] if tracker.should_fetch(name)]
@@ -322,14 +316,14 @@ def main(argv: list[str] | None = None) -> None:
         except TypeError:
             pass
 
-    _parser = argparse.ArgumentParser(prog="db_stats.py", add_help=True)
+    _parser = argparse.ArgumentParser(prog="python -m sports_calendar.tools.db_stats", add_help=True)
     _parser.add_argument("function", nargs="?", metavar="FUNCTION")
     _parser.add_argument("params", nargs="*", metavar="PARAM")
     _args = _parser.parse_args(argv)
 
     if not _args.function:
         _log.warning("No function specified.")
-        _log.warning("Usage: python db_stats.py <function> [params...]")
+        _log.warning("Usage: uv run python -m sports_calendar.tools.db_stats <function> [params...]")
         _log.warning("")
         _log.warning("Available functions:")
         for _fn_name, _fn in sorted(_available_fns.items()):
@@ -355,7 +349,7 @@ def main(argv: list[str] | None = None) -> None:
         _missing_params = [name for name, _ in _required_params[len(_args.params):]]
         _log.error(f"'{_args.function}' requires: {', '.join(n for n, _ in _required_params)}")
         _log.error(f"Missing: {', '.join(_missing_params)}")
-        _log.error(f"Usage: python db_stats.py {_args.function} {' '.join(f'<{n}>' for n, _ in _required_params)}")
+        _log.error(f"Usage: uv run python -m sports_calendar.tools.db_stats {_args.function} {' '.join(f'<{n}>' for n, _ in _required_params)}")
         sys.exit(1)
 
     # Convert each CLI string to the type declared in the parameter's annotation
