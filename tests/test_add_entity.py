@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from functions.add_entity import add_entities
-from functions.queries_file import read_queries
+from sports_calendar.tools.add_entity import add_entities
+from sports_calendar.queries_file import read_queries
 from tests.fakes import FakeSession, ScriptedInput, make_client
 
 LAKERS_SEARCH = {"results": [{"entity": {"id": 3427, "name": "Los Angeles Lakers", "gender": "M"}}]}

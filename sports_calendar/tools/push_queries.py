@@ -1,7 +1,7 @@
 """Upload queries.json as the QUERIES_JSON_B64 GitHub secret and start the deploy of main.
 
 The deploy writes the secret to queries.json on the VM and restarts the service, so a pushed change is
-live about a minute later. Run it as `uv run python -m functions.push_queries`.
+live about a minute later. Run it as `uv run python -m sports_calendar.tools.push_queries`.
 """
 import base64
 import json

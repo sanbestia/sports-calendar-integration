@@ -1,8 +1,8 @@
 import logging
 from collections.abc import Callable
-from objects.AllSportsClient import AllSportsClient, AllSportsError
-from objects.schemas import SearchResponse
-from functions.utils import sanitize_for_log, _ask_yes_no
+from sports_calendar.allsports.client import AllSportsClient, AllSportsError
+from sports_calendar.allsports.schemas import SearchResponse
+from sports_calendar.utils import sanitize_for_log, _ask_yes_no
 
 logger = logging.getLogger(__name__)
 

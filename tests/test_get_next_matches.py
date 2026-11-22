@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from tests.fakes import FakeSession, make_client
 
 INVALID_JSON = "<html>Internal Server Error</html>"
-from functions.get_next_matches import get_next_matches, _build_api_path
+from sports_calendar.allsports.matches import get_next_matches, _build_api_path
 
 # Fake event matching the real API structure
 FAKE_EVENT = {

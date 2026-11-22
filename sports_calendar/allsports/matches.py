@@ -2,10 +2,10 @@ import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from objects.Match import Match
-from objects.AllSportsClient import AllSportsClient, AllSportsError
-from objects.schemas import NextPageResponse, NearResponse
-from functions.utils import sanitize_for_log
+from sports_calendar.match import Match
+from sports_calendar.allsports.client import AllSportsClient, AllSportsError
+from sports_calendar.allsports.schemas import NextPageResponse, NearResponse
+from sports_calendar.utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 

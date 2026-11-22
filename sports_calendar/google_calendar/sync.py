@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from googleapiclient.discovery import Resource
 from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta
-from objects.Match import Match
-from objects.Clock import Clock
-from functions.utils import sanitize_for_log
+from sports_calendar.match import Match
+from sports_calendar.clock import Clock
+from sports_calendar.utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 

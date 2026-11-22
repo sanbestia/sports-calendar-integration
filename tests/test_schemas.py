@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from objects.schemas import (
+from sports_calendar.allsports.schemas import (
     Event, NextPageResponse, NearResponse,
     SearchEntity, SearchResult, SearchResponse
 )

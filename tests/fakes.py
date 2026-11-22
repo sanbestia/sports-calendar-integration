@@ -3,7 +3,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
-from objects.AllSportsClient import AllSportsClient
+from sports_calendar.allsports.client import AllSportsClient
 
 
 class FakeClock:

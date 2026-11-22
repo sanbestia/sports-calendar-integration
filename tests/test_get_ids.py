@@ -1,5 +1,5 @@
 import pytest
-from functions.get_ids import get_ids
+from sports_calendar.tools.get_ids import get_ids
 from tests.fakes import FakeSession, ScriptedInput, make_client
 
 
@@ -65,7 +65,7 @@ def test_returns_two_different_entries():
 
 # --- _ask_non_empty tests ---
 
-from functions.get_ids import _ask_non_empty
+from sports_calendar.tools.get_ids import _ask_non_empty
 
 def test_ask_non_empty_returns_value_on_valid_input():
     """Returns the input string when it is non-empty."""

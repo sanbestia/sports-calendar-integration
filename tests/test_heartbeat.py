@@ -1,7 +1,7 @@
 import pytest
 import requests
 
-from objects.Heartbeat import Heartbeat, PING_TIMEOUT_SECONDS
+from sports_calendar.heartbeat import Heartbeat, PING_TIMEOUT_SECONDS
 from tests.fakes import FakePost
 
 URL = "https://hc-ping.com/0f1e2d3c-secret-uuid"

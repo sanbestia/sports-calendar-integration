@@ -2,16 +2,16 @@ import pytest
 import json
 import datetime
 from unittest.mock import MagicMock
-from config import MAIN_LOOP_SLEEP_MINUTES
-from functions.calendar_methods import SyncResult
+from sports_calendar.config import MAIN_LOOP_SLEEP_MINUTES
+from sports_calendar.google_calendar.sync import SyncResult
 from main import (load_queries, build_queries_from_get_ids, run_cycle, run, LoopDeps, CalendarConnection, current_version,
                   install_stop_handler, make_heartbeat, stop_for_login)
 from google.auth.exceptions import RefreshError
-from functions.check_calendar_tokens import LoginRequired
-from objects.Heartbeat import Heartbeat
+from sports_calendar.google_calendar.auth import LoginRequired
+from sports_calendar.heartbeat import Heartbeat
 import signal
 import subprocess
-from config import API_CALL_CEILING
+from sports_calendar.config import API_CALL_CEILING
 from tests.fakes import FakeClock, FakeSession, FakePost, ScriptedInput, make_client
 
 
@@ -507,7 +507,7 @@ def test_stop_for_login_logs_the_steps_sends_a_fail_ping_and_exits_1(caplog):
     error_lines = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert len(error_lines) == 1
     assert "no token file" in error_lines[0]
-    assert "python -m functions.check_calendar_tokens" in error_lines[0]
+    assert "python -m sports_calendar.google_calendar.auth" in error_lines[0]
     assert [c["url"] for c in post.calls] == [f"{PING_URL}/fail"]
     assert post.calls[0]["data"].decode() == error_lines[0]
 

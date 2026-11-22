@@ -1,9 +1,9 @@
 import logging
 from datetime import date
 
-from config import MAX_API_CALLS
-from objects.Clock import Clock
-from objects.SqliteStore import SqliteStore
+from sports_calendar.config import MAX_API_CALLS
+from sports_calendar.clock import Clock
+from sports_calendar.storage.sqlite_store import SqliteStore
 
 logger = logging.getLogger(__name__)
 

@@ -5,9 +5,9 @@ from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import pytest
 
-from objects.Clock import Clock
-from objects.FetchHistory import FetchHistory
-from functions.db_stats import (
+from sports_calendar.clock import Clock
+from sports_calendar.storage.fetch_history import FetchHistory
+from sports_calendar.tools.db_stats import (
     calls_per_entity,
     outcomes_per_entity,
     recent_failures,
@@ -542,7 +542,7 @@ def test_stale_teams_returns_empty_on_empty_db(empty_fetch_db):
 
 def run_cli(*argv: str) -> int:
     """Run db_stats.main() with the given arguments and return its exit code (0 when it does not exit)."""
-    from functions import db_stats
+    from sports_calendar.tools import db_stats
     try:
         db_stats.main(list(argv))
     except SystemExit as e:

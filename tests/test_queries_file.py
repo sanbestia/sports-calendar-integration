@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from functions.queries_file import QueryError, add_query, calendar_keys, read_queries
+from sports_calendar.queries_file import QueryError, add_query, calendar_keys, read_queries
 
 EXISTING = {
     "San Antonio Spurs": {"id": "3429", "sport": "basketball", "player_type": "team", "calendar": "CALENDAR_ID_BASKETBALL"},

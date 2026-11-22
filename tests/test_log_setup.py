@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from functions.log_setup import JournalFormatter, configure_logging
+from sports_calendar.log_setup import JournalFormatter, configure_logging
 
 
 def make_record(level: int, message: str) -> logging.LogRecord:

@@ -1,9 +1,9 @@
 import logging
 import os
 from collections.abc import Callable
-from objects.AllSportsClient import AllSportsClient
-from functions.search_entity import search_entity, pick_entity
-from functions.utils import _ask_yes_no
+from sports_calendar.allsports.client import AllSportsClient
+from sports_calendar.allsports.search import search_entity, pick_entity
+from sports_calendar.utils import _ask_yes_no
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def get_ids(client: AllSportsClient, ask: Callable[[str], str] = input) -> dict[
 def main():
     """Standalone entry point for running the ID lookup tool from the command line."""
     from dotenv import load_dotenv
-    from objects.APICallTracker import APICallTracker
+    from sports_calendar.storage.api_calls import APICallTracker
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     load_dotenv()  # same .env as the main script, so RAPIDAPI_KEY need not be exported by hand
     client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=APICallTracker())

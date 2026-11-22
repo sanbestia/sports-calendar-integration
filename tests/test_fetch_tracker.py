@@ -3,8 +3,8 @@ from contextlib import closing
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from objects.FetchTracker import FetchTracker
-from config import FETCH_THRESHOLDS
+from sports_calendar.storage.fetch_tracker import FetchTracker
+from sports_calendar.config import FETCH_THRESHOLDS
 from tests.fakes import FakeClock
 
 
