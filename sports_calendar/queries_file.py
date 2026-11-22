@@ -1,7 +1,7 @@
 """Read and add entries in queries.json, the list of teams and players the service tracks.
 
 Each entry is {name: {"id", "sport", "player_type", "calendar"}}, where "calendar" is the name of an
-environment variable that holds the Google Calendar ID (resolved at startup by main.load_queries).
+environment variable that holds the Google Calendar ID (load_queries resolves it for each run).
 """
 import json
 import os
@@ -18,8 +18,39 @@ def read_queries(path: str) -> dict:
     """Return the raw entries (calendar values are env keys), or {} when the file does not exist yet."""
     if not os.path.exists(path):
         return {}
+    return _read_entries(path)
+
+
+def load_queries(path: str, env: Mapping[str, str]) -> dict:
+    """Return the entries for a run: each one complete, with its calendar env key replaced by the calendar ID from env.
+
+    A missing file raises FileNotFoundError, unlike read_queries: a run with no entries would only hide the mistake.
+    """
+    queries = _read_entries(path)
+    for name, entry in queries.items():
+        _check_required_fields(name, entry)
+        entry["calendar"] = _calendar_id(name, entry["calendar"], env)
+    return queries
+
+
+def _read_entries(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _check_required_fields(name: str, entry: Mapping[str, str]) -> None:
+    """Raise ValueError when the entry lacks a field that a run needs."""
+    missing = REQUIRED_QUERY_FIELDS - entry.keys()
+    if missing:
+        raise ValueError(f"Query '{name}' is missing required fields: {', '.join(sorted(missing))}")
+
+
+def _calendar_id(name: str, env_key: str, env: Mapping[str, str]) -> str:
+    """Return the calendar ID that env holds under env_key; raise ValueError when it is not set."""
+    calendar_id = env.get(env_key)
+    if not calendar_id:
+        raise ValueError(f"Environment variable '{env_key}' not found for '{name}'")
+    return calendar_id
 
 
 def calendar_keys(queries: Mapping[str, dict]) -> list[str]:

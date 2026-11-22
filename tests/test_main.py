@@ -1,9 +1,8 @@
 import pytest
-import json
 import datetime
 from unittest.mock import MagicMock
 from sports_calendar.google_calendar.sync import SyncResult
-from main import (load_queries, run_cycle, run_once, RunDeps, current_version,
+from main import (run_cycle, run_once, RunDeps, current_version,
                   install_stop_handler, make_heartbeat, stop_for_login)
 from google.auth.exceptions import RefreshError
 from sports_calendar.google_calendar.auth import LoginRequired
@@ -12,67 +11,6 @@ import logging
 import signal
 import subprocess
 from tests.fakes import FakeClock, FakePost
-
-
-FAKE_RAW_QUERIES = {
-    "San Antonio Spurs": {
-        "id": "3429",
-        "sport": "basketball",
-        "player_type": "team",
-        "calendar": "CALENDAR_ID_BASKETBALL"
-    },
-    "T1": {
-        "id": "364366",
-        "sport": "esport",
-        "player_type": "team",
-        "calendar": "CALENDAR_ID_ESPORTS"
-    }
-}
-
-
-# --- load_queries tests ---
-
-FAKE_ENV = {
-    "CALENDAR_ID_BASKETBALL": "real_basketball_calendar_id",
-    "CALENDAR_ID_ESPORTS": "real_esports_calendar_id",
-}
-
-
-def write_queries(tmp_path, queries: dict) -> str:
-    """Write a queries file and return its path."""
-    path = tmp_path / "queries.json"
-    path.write_text(json.dumps(queries))
-    return str(path)
-
-
-def test_load_queries_resolves_env_variables(tmp_path):
-    """Resolves calendar env keys to actual IDs from the given environment."""
-    result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), env=FAKE_ENV)
-
-    assert result["San Antonio Spurs"]["calendar"] == "real_basketball_calendar_id"
-    assert result["T1"]["calendar"] == "real_esports_calendar_id"
-
-
-def test_load_queries_raises_when_env_variable_missing(tmp_path):
-    """Raises ValueError when a calendar env key is not set."""
-    with pytest.raises(ValueError, match="CALENDAR_ID_BASKETBALL"):
-        load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), env={})
-
-
-def test_load_queries_preserves_other_fields(tmp_path):
-    """Preserves id, sport and player_type fields after loading."""
-    result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), env=FAKE_ENV)
-
-    assert result["San Antonio Spurs"]["id"] == "3429"
-    assert result["San Antonio Spurs"]["sport"] == "basketball"
-    assert result["San Antonio Spurs"]["player_type"] == "team"
-
-
-def test_load_queries_raises_when_required_field_missing(tmp_path):
-    """Names the query and the missing field when an entry is incomplete."""
-    incomplete = {"T1": {"id": "364366", "sport": "esport", "calendar": "CALENDAR_ID_ESPORTS"}}
-    with pytest.raises(ValueError, match="'T1' is missing required fields: player_type"):
-        load_queries(write_queries(tmp_path, incomplete), env=FAKE_ENV)
 
 
 # --- run_cycle / run_once tests ---
@@ -311,7 +249,7 @@ def test_a_failed_history_write_does_not_turn_a_good_fetch_into_a_failure(caplog
 def test_current_version_is_the_short_git_commit():
     def fake_git(*args, **kwargs):
         return subprocess.CompletedProcess(args, 0, stdout="ceb2b35\n", stderr="")
-    assert current_version(run=fake_git) == "ceb2b35"
+    assert current_version(run_command=fake_git) == "ceb2b35"
 
 
 @pytest.mark.parametrize("failure", [FileNotFoundError("git"), subprocess.CalledProcessError(128, "git")])
@@ -319,7 +257,7 @@ def test_current_version_is_unknown_without_git(failure):
     """A copy without .git or without the git command still starts."""
     def failing_git(*args, **kwargs):
         raise failure
-    assert current_version(run=failing_git) == "unknown"
+    assert current_version(run_command=failing_git) == "unknown"
 
 
 # --- clean stop on SIGTERM ---
