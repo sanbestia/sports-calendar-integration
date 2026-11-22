@@ -86,10 +86,23 @@ class FetchTracker(SqliteStore):
 
     def _get_recheck_hours(self, next_match: datetime | None, now: datetime, match_count: int = 0,
                            empty_wait_hours: float | None = None) -> float:
-        """Return the recheck interval in hours based on how soon the next match is."""
+        """Return the recheck interval in hours: the empty-schedule wait, or the band of the next match with the season minimum."""
         if next_match is None:  # empty schedule: the wait stored by record_fetch (8h for rows from before it existed)
             return empty_wait_hours if empty_wait_hours is not None else FETCH_THRESHOLDS["unknown"]["recheck_hours"]
+        return self._with_season_minimum(self._match_band_hours(next_match, now, match_count), match_count)
 
+    @staticmethod
+    def _with_season_minimum(hours: float, match_count: int) -> float:
+        """Make the wait of a full season (min_matches or more upcoming matches) at least min_recheck_hours.
+
+        It only lengthens a wait: a season whose first game is far away keeps the far interval.
+        """
+        season = FETCH_THRESHOLDS["season"]
+        return max(hours, season["min_recheck_hours"]) if match_count >= season["min_matches"] else hours
+
+    @staticmethod
+    def _match_band_hours(next_match: datetime, now: datetime, match_count: int) -> float:
+        """Return the recheck interval of the band that the next match falls in (imminent, near, medium or far)."""
         hours_until_match = (next_match - now).total_seconds() / 3600
 
         if match_count == 1:  # imminent-interval checks only apply when a single upcoming match is known

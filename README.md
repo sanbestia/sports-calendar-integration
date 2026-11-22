@@ -102,11 +102,15 @@ FETCH_THRESHOLDS = {
                       "max_recheck_hours": {"player": 12, "team": 48}},  # then double the wait for each empty result, up to the cap
     "imminent":      {"hours": 24, "recheck_hours": 4},  # single match within this many hours
     "imminent_close":{"hours": 3,  "recheck_hours": 1}, # single match within this many hours
+    "season":        {"min_matches": 10, "min_recheck_hours": 24},  # a full season (10+ upcoming matches) waits at least 24h:
+                                                         # its changes are rare, and each fetch is several pages
     "failed":        {"recheck_hours": 1, "max_recheck_hours": 8}  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h
 }
 ```
 
 Each team is re-fetched at different rates depending on how soon their next match is, so the program avoids unnecessary API calls when games are far away, but checks often when matches are approaching. As a special case, if only one match is found the program applies stricter refresh rates: every `imminent.recheck_hours` when the match is within the `imminent` window, and every `imminent_close.recheck_hours` when it is within the closer `imminent_close` window.
+
+A team with a full season published (`season.min_matches`, 10 or more upcoming matches, for example an NBA team) waits at least `season.min_recheck_hours` (24h), whatever its band. Its next game is always within a few days, so the `near` band alone would fetch it every 12h, and each fetch of a full season reads several pages (3 API calls for an NBA season). A full season changes rarely, mostly in titles and team names, so a change can wait up to a day. The rule only makes a wait longer: a season whose first game is more than 7 days away keeps the `far` interval.
 
 When a team has no upcoming match, it is checked every `unknown.recheck_hours` for the first `unknown.grace_days`. That covers the gap between playoff rounds, when the next game is not announced yet, and a tennis player waiting for the next round or draw. After that, each empty result doubles the wait, up to `unknown.max_recheck_hours`: 12h for players, because a tennis draw can come out less than a day before round 1, and 48h for teams in their off-season. A fetch that finds a match resets this.
 
