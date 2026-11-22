@@ -123,6 +123,45 @@ def test_should_fetch_returns_true_when_threshold_exceeded_no_match():
     assert tracker.should_fetch("Indiana Fever") is True
 
 
+# --- full seasons: a long schedule waits at least the season interval ---
+
+SEASON = FETCH_THRESHOLDS["season"]
+NEAR_DAYS = FETCH_THRESHOLDS["near"]["days"] + 0.1  # an NBA team's next game is always in the near band
+
+
+def test_a_full_season_is_not_fetched_after_the_near_interval():
+    """A full season changes rarely (titles, renames), and each fetch is 3 pages: it waits the season interval."""
+    tracker = make_tracker()
+    seed_entry(tracker, "San Antonio Spurs", hours_ago=FETCH_THRESHOLDS["near"]["recheck_hours"] + 0.1,
+               days_until_match=NEAR_DAYS, match_count=SEASON["min_matches"])
+    assert tracker.should_fetch("San Antonio Spurs") is False
+
+
+def test_a_full_season_is_fetched_after_the_season_interval():
+    """The longer wait still ends: a change shows up within the season interval."""
+    tracker = make_tracker()
+    seed_entry(tracker, "San Antonio Spurs", hours_ago=SEASON["min_recheck_hours"] + 0.1,
+               days_until_match=NEAR_DAYS, match_count=SEASON["min_matches"])
+    assert tracker.should_fetch("San Antonio Spurs") is True
+
+
+def test_fewer_matches_than_a_season_keep_the_near_interval():
+    """A national team or a tournament run (a few matches) keeps the band of its next match."""
+    tracker = make_tracker()
+    seed_entry(tracker, "France - Basketball National Team", hours_ago=FETCH_THRESHOLDS["near"]["recheck_hours"] + 0.1,
+               days_until_match=NEAR_DAYS, match_count=SEASON["min_matches"] - 1)
+    assert tracker.should_fetch("France - Basketball National Team") is True
+
+
+def test_the_season_rule_never_shortens_a_longer_wait():
+    """In the preseason the first game is far away: the far interval, which is longer, stays."""
+    tracker = make_tracker()
+    far_hours = FETCH_THRESHOLDS["far"]["recheck_hours"]
+    seed_entry(tracker, "Los Angeles Lakers", hours_ago=0,
+               days_until_match=FETCH_THRESHOLDS["far"]["days"] + 0.1, match_count=SEASON["min_matches"] + 50)
+    assert tracker.hours_until_next_fetch("Los Angeles Lakers") == pytest.approx(max(far_hours, SEASON["min_recheck_hours"]), abs=0.01)
+
+
 # --- record_fetch tests ---
 
 def test_record_fetch_saves_entry_with_next_match():
