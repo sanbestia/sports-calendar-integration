@@ -23,6 +23,7 @@ ICONS: dict[str, str] = {
     "motorsport": "🏎️",
     "esport": "🎮"
 }
+DEFAULT_ICON = "🏆"  # for a sport that is not in ICONS, so that a new sport does not stop the sync
 
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 4
@@ -45,7 +46,7 @@ def _execute_with_retry(request, clock: Clock) -> dict:
 
 def _build_summary(game: Match) -> str:
     """Build the event title: '<icon> <side one> vs <side two> - <tournament> (<stage>)'."""
-    return f'{ICONS[game.sport]} {game.side_one} vs {game.side_two} - {game.tournament} ({game.stage})'
+    return f'{ICONS.get(game.sport, DEFAULT_ICON)} {game.side_one} vs {game.side_two} - {game.tournament} ({game.stage})'
 
 
 def _private_properties(game: Match) -> dict[str, str]:

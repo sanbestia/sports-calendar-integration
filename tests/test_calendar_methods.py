@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 from googleapiclient.errors import HttpError
 from sports_calendar.match import Match
-from sports_calendar.google_calendar.sync import update_events, _build_event_body, SyncResult
+from sports_calendar.google_calendar.sync import update_events, _build_event_body, SyncResult, DEFAULT_ICON
 from tests.fakes import FakeClock
 
 
@@ -529,3 +529,15 @@ def test_an_event_this_app_wrote_is_up_to_date_at_the_next_sync(home_team_id, aw
     mock_service.events().delete.assert_not_called()
     assert result == SyncResult(event_count=1)
 
+
+def test_a_sport_without_an_icon_gets_the_default_icon():
+    """add_entity accepts any sport; a sport missing from ICONS must not stop the sync."""
+    match = make_match()
+    match.sport = "darts"
+    mock_service = make_mock_service([])
+
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=[match])
+
+    body = mock_service.events().insert.call_args.kwargs["body"]
+    assert body["summary"] == f"{DEFAULT_ICON} Team A vs Team B - Some League (Round 1)"
+    assert result.created == 1
