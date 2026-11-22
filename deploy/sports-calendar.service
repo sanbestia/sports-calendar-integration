@@ -9,7 +9,9 @@ Wants=network-online.target
 [Service]
 User=ubuntu
 WorkingDirectory=/home/ubuntu/sports_calendar_integration
-ExecStart=/home/ubuntu/.local/bin/uv run python main.py --queries queries.json
+# --no-dev: the service needs neither pytest nor pandas (the dev and stats groups). The deploy installs the
+# packages with `uv sync --locked --no-dev` before the restart, so this start only checks them.
+ExecStart=/home/ubuntu/.local/bin/uv run --no-dev python main.py --queries queries.json
 Restart=on-failure
 RestartSec=60
 # On stop, send SIGTERM only to the main process (uv), which passes it on to Python; Python then exits 0.
