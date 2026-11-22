@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime, timezone
-
-import pytz
+from zoneinfo import ZoneInfo
 
 from objects.Match import Match
 from objects.AllSportsClient import AllSportsClient, AllSportsError
@@ -85,7 +84,7 @@ def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, play
             continue
 
         date_time = datetime.fromtimestamp(event['startTimestamp'], tz=timezone.utc)
-        date_time = date_time.astimezone(pytz.timezone(time_zone))
+        date_time = date_time.astimezone(ZoneInfo(time_zone))
         round_info = event.get('roundInfo')
         game = Match(
             side_one=event['homeTeam']['name'],
