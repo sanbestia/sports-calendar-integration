@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from sports_calendar.match import Match
 from sports_calendar.allsports.client import AllSportsClient, AllSportsError, sport_path_prefix
-from sports_calendar.allsports.schemas import NextPageResponse, NearResponse
+from sports_calendar.allsports.schemas import Event, NextPageResponse, NearResponse, RoundInfo
 from sports_calendar.utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
@@ -19,21 +19,21 @@ def _build_api_path(sport: str, player_type: str, team_id: str, endpoint: str, p
     return path
 
 
-def _get_stage(round_info: dict | None, fallback: str) -> str:
-    """Resolve the match stage from round info, synthesising a name from the round number if needed."""
-    if round_info and round_info.get('name'):
-        return round_info['name']
-    if round_info and round_info.get('round') is not None:
-        return f'Round {round_info["round"]}'
+def _stage_name(round_info: RoundInfo | None, fallback: str) -> str:
+    """Return the name of the round, else 'Round N' from its number, else the fallback."""
+    if round_info is not None and round_info.name:
+        return round_info.name
+    if round_info is not None and round_info.round is not None:
+        return f"Round {round_info.round}"
     return fallback
 
 
-def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id: str) -> list[dict]:
-    """Return the raw upcoming events: every page of 'next', or the 'near' fallback when 'next' has none.
+def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id: str) -> list[Event]:
+    """Return the upcoming events: every page of 'next', or the 'near' fallback when 'next' has none.
 
     Raises AllSportsError when a request fails or a response cannot be read.
     """
-    events: list[dict] = []
+    events: list[Event] = []
     page = 0
     while True:
         parsed = client.get(_build_api_path(sport, player_type, team_id, "next", page), NextPageResponse)
@@ -42,7 +42,7 @@ def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id
                 logger.info("No upcoming games found with 'next' endpoint, trying 'near'...")
                 break
             raise AllSportsError(f"Empty response on page {page}")
-        events += [e.model_dump() for e in parsed.events]  # convert back to dict; subsequent code uses raw key access like event['homeTeam']
+        events += parsed.events
         if not parsed.hasNextPage:
             break
         page += 1
@@ -56,7 +56,48 @@ def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id
     if not near.nextEvent:
         logger.info("No upcoming games found using any endpoints")
         return []
-    return [e.model_dump() for e in near.nextEvent]  # convert to dict; same reason as in the paginated path above
+    return near.nextEvent
+
+
+def _is_cancelled(event: Event) -> bool:
+    """Return True when the API marks the event 'canceled'. The status is optional: an event with none is not cancelled."""
+    return event.status is not None and event.status.type == "canceled"
+
+
+def _without_cancelled(events: list[Event]) -> list[Event]:
+    """Return the events that are not cancelled, and log each cancelled event that it drops."""
+    kept: list[Event] = []
+    for event in events:
+        if _is_cancelled(event):
+            logger.info(f"Skipping cancelled match: {sanitize_for_log(event.homeTeam.name)} vs {sanitize_for_log(event.awayTeam.name)}")
+        else:
+            kept.append(event)
+    return kept
+
+
+def _to_match(event: Event, sport: str, time_zone: str) -> Match:
+    """Return the Match of an API event, with its start time in the given time zone."""
+    return Match(
+        side_one=event.homeTeam.name,
+        side_two=event.awayTeam.name,
+        tournament=event.season.name,
+        stage=_stage_name(event.roundInfo, event.tournament.name),
+        game_id=event.id,
+        sport=sport,
+        start_time=datetime.fromtimestamp(event.startTimestamp, tz=timezone.utc).astimezone(ZoneInfo(time_zone)),
+        home_team_id=event.homeTeam.id,
+        away_team_id=event.awayTeam.id,
+    )
+
+
+def _log_found(matches: list[Match], time_zone: str) -> None:
+    """Log each match at DEBUG, then one INFO line with the count and the next match."""
+    for match in matches:
+        logger.debug(f"{sanitize_for_log(str(match))} ({sanitize_for_log(time_zone)})")
+    if matches:
+        next_match = min(matches, key=lambda match: match.start_time)
+        logger.info(f"Found {len(matches)} upcoming match{'' if len(matches) == 1 else 'es'}; "
+                    f"next: {sanitize_for_log(str(next_match))} ({sanitize_for_log(time_zone)})")
 
 
 def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, player_type: str, sport: str, time_zone: str) -> list[Match] | None:
@@ -66,42 +107,11 @@ def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, play
     a failure soon instead of treating it as an empty schedule.
     """
     logger.info(f"Looking for games featuring {sanitize_for_log(team_name)}...")
-
     try:
         events = _fetch_events(client, sport, player_type, team_id)
     except AllSportsError as e:
         logger.error(f"Couldn't get matches for {sanitize_for_log(team_name)}: {e}")
         return None
-
-    if not events:
-        return []
-
-    next_games: list[Match] = []
-    for event in events:
-        if event.get('status', {}).get('type') == 'canceled':
-            logger.info(f"Skipping cancelled match: {sanitize_for_log(event['homeTeam']['name'])} vs {sanitize_for_log(event['awayTeam']['name'])}")
-            continue
-
-        date_time = datetime.fromtimestamp(event['startTimestamp'], tz=timezone.utc)
-        date_time = date_time.astimezone(ZoneInfo(time_zone))
-        round_info = event.get('roundInfo')
-        game = Match(
-            side_one=event['homeTeam']['name'],
-            side_two=event['awayTeam']['name'],
-            tournament=event['season']['name'],
-            stage=_get_stage(round_info, event['tournament']['name']),
-            game_id=event['id'],
-            sport=sport,
-            start_time=date_time,
-            home_team_id=event['homeTeam']['id'],
-            away_team_id=event['awayTeam']['id'],
-        )
-
-        logger.debug(f"{sanitize_for_log(str(game))} ({sanitize_for_log(time_zone)})")
-        next_games.append(game)
-
-    if next_games:
-        first = min(next_games, key=lambda g: g.start_time)
-        logger.info(f"Found {len(next_games)} upcoming match{'' if len(next_games) == 1 else 'es'}; "
-                    f"next: {sanitize_for_log(str(first))} ({sanitize_for_log(time_zone)})")
-    return next_games
+    matches = [_to_match(event, sport, time_zone) for event in _without_cancelled(events)]
+    _log_found(matches, time_zone)
+    return matches
