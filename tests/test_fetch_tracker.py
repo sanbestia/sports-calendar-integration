@@ -571,3 +571,16 @@ def test_existing_empty_rows_start_with_the_unknown_interval(tmp_path):
     tracker = make_tracker(db_path, clock=FakeClock())
 
     assert tracker.hours_until_next_fetch("Indiana Fever") == pytest.approx(EMPTY_HOURS)
+
+
+def test_a_read_only_tracker_reads_the_schedule_but_cannot_write(tmp_path):
+    """db_stats asks a read-only tracker, so the tool can never change the service's database."""
+    db_path = tmp_path / "fetch_log.db"
+    make_tracker(str(db_path), clock=FakeClock()).record_fetch("Indiana Fever", None, 0)
+    before = db_path.read_bytes()
+    reader = FetchTracker(db_path=str(db_path), clock=FakeClock(), read_only=True)
+
+    assert reader.should_fetch("Indiana Fever") is False  # an empty result waits before the next fetch
+    with pytest.raises(sqlite3.OperationalError):
+        reader.record_fetch("Indiana Fever", None, 0)
+    assert db_path.read_bytes() == before

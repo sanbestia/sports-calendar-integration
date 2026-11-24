@@ -61,11 +61,12 @@ class FetchState:
 
 
 class FetchTracker(SqliteStore):
-    def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None):
-        """Initialise the tracker and create the fetch_log table if it doesn't exist."""
-        super().__init__(db_path)
+    def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None, read_only: bool = False):
+        """Initialise the tracker. A writable one creates the fetch_log table or adds missing columns; a read-only one never writes."""
+        super().__init__(db_path, read_only=read_only)
         self._clock = clock or Clock()
-        self._init_db()
+        if not read_only:
+            self._init_db()
 
     def _init_db(self) -> None:
         """Create the table if it doesn't exist yet, and add columns that older databases lack."""

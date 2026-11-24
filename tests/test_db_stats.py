@@ -1,3 +1,4 @@
+import inspect
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timezone, timedelta
@@ -7,6 +8,7 @@ import pytest
 
 from sports_calendar.clock import Clock
 from sports_calendar.storage.fetch_history import FetchHistory
+from sports_calendar.storage.fetch_tracker import FetchTracker
 from sports_calendar.tools.db_stats import (
     calls_per_entity,
     outcomes_per_entity,
@@ -438,19 +440,15 @@ def test_api_budget_forecast_returns_zero_rate_on_empty_db(empty_api_db):
 
 @pytest.fixture
 def fetch_db_due(tmp_path):
-    """Fetch log with one team due (fetched 200h ago) and one not due (fetched 1h ago)."""
+    """Fetch log with one team due (fetched 200h ago) and one not due (fetched 1h ago).
+
+    FetchTracker creates the table, so it has the columns of the current schema, as the service's database has.
+    """
     db_path = str(tmp_path / "fetch_log.db")
     now = datetime.now(timezone.utc)
+    FetchTracker(db_path=db_path)
     with closing(sqlite3.connect(db_path)) as conn, conn:
-        conn.execute("""
-            CREATE TABLE fetch_log (
-                team_name TEXT PRIMARY KEY,
-                last_fetched TEXT NOT NULL,
-                next_match TEXT,
-                match_count INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-        conn.executemany("INSERT INTO fetch_log VALUES (?, ?, ?, ?)", [
+        conn.executemany("INSERT INTO fetch_log (team_name, last_fetched, next_match, match_count) VALUES (?, ?, ?, ?)", [
             ("Stale Team", (now - timedelta(hours=200)).isoformat(), None, 0),
             ("Fresh Team", (now - timedelta(hours=1)).isoformat(), None, 0),
         ])
@@ -579,6 +577,23 @@ def test_cli_rejects_badly_typed_param(caplog):
     """A value that does not convert to the declared type exits 1."""
     assert run_cli("calls_on", "not-a-date") == 1
     assert "Bad value for 'day'" in caplog.text
+
+
+def test_no_function_creates_a_database_file(tmp_path):
+    """db_stats only reads: run on the server, it must never change the service's databases.
+
+    Each public function gets a database path that does not exist. A read fails there; only a write creates the file.
+    """
+    from sports_calendar.tools import db_stats
+    missing = tmp_path / "missing.db"
+    sample_values = {date: date.today(), int: 1, float: 1.0, str: "x"}
+    for name, function in db_stats._public_functions().items():
+        required = [p for p in inspect.signature(function).parameters.values() if p.default is inspect.Parameter.empty]
+        try:
+            function(*[sample_values[p.annotation] for p in required], db_path=str(missing))
+        except sqlite3.OperationalError:
+            pass  # "unable to open database file": the read-only connection does not create it
+        assert not missing.exists(), f"{name} created the database file"
 
 
 # ============================================================
