@@ -11,10 +11,16 @@ Wants=network-online.target
 # and `systemctl start` returns only when the run ends (with an error when the run fails).
 Type=oneshot
 User=ubuntu
-WorkingDirectory=/home/ubuntu/sports_calendar_integration
+# The service's data (the two databases, queries.json, token.json and .env) lives in /var/lib/sports-calendar,
+# outside the git checkout, so a git reset or git clean there cannot touch it. systemd creates the folder for
+# User= at each start, keeps it when the unit stops, and sets its mode to 0700, because it holds secrets.
+StateDirectory=sports-calendar
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/sports-calendar
 # --no-dev: the service needs neither pytest nor pandas (the dev and stats groups). The deploy installs the
 # packages with `uv sync --locked --no-dev`, so this start only checks them.
-ExecStart=/home/ubuntu/.local/bin/uv run --no-dev sports-calendar --queries queries.json
+# --project: the code is in the git checkout, and the working directory is the state folder.
+ExecStart=/home/ubuntu/.local/bin/uv run --project /home/ubuntu/sports_calendar_integration --no-dev sports-calendar --queries queries.json
 # A oneshot has no start timeout by default; a run that hangs would then block every later run. A normal run
 # takes seconds.
 TimeoutStartSec=5min

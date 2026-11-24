@@ -23,7 +23,10 @@ jobs:
           username: ubuntu
           key: ${{ secrets.ORACLE_VM_SSH_KEY }}
           script: |
-            echo '${{ secrets.QUERIES_JSON_B64 }}' | base64 -d > /home/ubuntu/sports_calendar_integration/queries.json
+            # the state folder of the units (StateDirectory=); systemd creates it at the first start, but this step runs before
+            set -e
+            sudo install -d -o ubuntu -g ubuntu -m 700 /var/lib/sports-calendar
+            echo '${{ secrets.QUERIES_JSON_B64 }}' | base64 -d > /var/lib/sports-calendar/queries.json
 
       - name: Deploy to VM
         uses: appleboy/ssh-action@v1.0.3

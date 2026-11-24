@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     configure_logging()
     install_stop_handler()
-    load_dotenv()
+    load_dotenv(".env")  # the working directory's .env: the state folder on the server, the repo root locally
 
     parser = argparse.ArgumentParser(description="Sports Calendar Integration")
     parser.add_argument(
