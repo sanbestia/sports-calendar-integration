@@ -2,19 +2,43 @@ import logging
 import os
 from collections.abc import Callable
 from sports_calendar.allsports.client import AllSportsClient
-from sports_calendar.allsports.search import search_entity, pick_entity
-from sports_calendar.utils import _ask_yes_no
+from sports_calendar.allsports.search import search_entity
+from sports_calendar.tools.prompts import ask_non_empty, ask_yes_no
 
 logger = logging.getLogger(__name__)
 
 
-def _ask_non_empty(prompt: str, ask: Callable[[str], str] = input) -> str:
-    """Prompt the user until they enter a non-empty string."""
-    while True:
-        value = ask(prompt).strip()
-        if value:
-            return value
-        logger.info("This field cannot be empty, please try again.")
+def pick_entity(hits: list[dict], ask: Callable[[str], str] = input) -> dict | None:
+    """Present a list of search hits to the user and return the chosen one, or None if rejected."""
+    if not hits:
+        logger.info("No results found.")
+        return None
+
+    if len(hits) == 1:
+        chosen = hits[0]
+    else:
+        logger.info("Multiple results found:")
+        for i, hit in enumerate(hits):
+            gender = f" ({hit['gender']})" if hit['gender'] else ""
+            player_type = hit['player_type'].capitalize()
+            logger.info(f"  {i + 1}: {hit['name']}{gender} - {player_type}")
+
+        while True:
+            try:
+                index = int(ask(f"Type a number between 1 and {len(hits)}: ")) - 1
+                if 0 <= index < len(hits):
+                    break
+                logger.info(f"Please enter a number between 1 and {len(hits)}.")
+            except ValueError:
+                logger.info("That's not a valid number, please try again.")
+
+        chosen = hits[index]
+
+    if ask_yes_no(f"Select '{chosen['name']}' ({chosen['player_type']})? Y/N: ", ask):
+        return chosen
+
+    logger.info("Choice discarded.")
+    return None
 
 
 def get_ids(client: AllSportsClient, ask: Callable[[str], str] = input) -> dict[str, dict[str, str]]:
@@ -22,8 +46,8 @@ def get_ids(client: AllSportsClient, ask: Callable[[str], str] = input) -> dict[
     id_dict: dict[str, dict[str, str]] = {}
 
     while True:
-        name: str = _ask_non_empty("Enter player/team name: ", ask)
-        sport: str = _ask_non_empty("Enter sport to look for: ", ask)
+        name: str = ask_non_empty("Enter player/team name: ", ask)
+        sport: str = ask_non_empty("Enter sport to look for: ", ask)
 
         hits = search_entity(client, name, sport)
 
@@ -39,7 +63,7 @@ def get_ids(client: AllSportsClient, ask: Callable[[str], str] = input) -> dict[
                 "player_type": chosen["player_type"]
             }
 
-        if not _ask_yes_no("Search for another player/team? Y/N: ", ask):
+        if not ask_yes_no("Search for another player/team? Y/N: ", ask):
             return id_dict
 
         logger.info("")

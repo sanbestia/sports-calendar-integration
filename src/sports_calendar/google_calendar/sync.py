@@ -6,7 +6,7 @@ from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta
 from sports_calendar.match import Match
 from sports_calendar.clock import Clock
-from sports_calendar.utils import sanitize_for_log
+from sports_calendar.logs import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 

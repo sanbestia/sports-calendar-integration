@@ -1,5 +1,7 @@
+"""Log lines: their format for a terminal or for journald, the setup of the root logger, and safe text from outside sources."""
 import logging
 import os
+import re
 import sys
 from collections.abc import Mapping
 from typing import TextIO
@@ -42,3 +44,14 @@ def configure_logging(env: Mapping[str, str] = os.environ, stream: TextIO | None
     logger.handlers[:] = [handler]
     logger.setLevel(level)
     logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)  # suppress the verbose 'file_cache unavailable' warning emitted by the Google client
+
+
+def sanitize_for_log(value: str) -> str:
+    """Strip ANSI escape codes and normalize newlines from external strings before logging.
+
+    Prevents log injection from malicious or malformed API responses containing
+    escape sequences or embedded newlines that could spoof log entries.
+    """
+    value = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', value)  # ANSI escape codes
+    value = value.replace('\n', ' ').replace('\r', ' ')
+    return value.strip()

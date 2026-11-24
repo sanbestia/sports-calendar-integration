@@ -18,7 +18,7 @@ from sports_calendar.allsports.client import AllSportsClient
 from sports_calendar.clock import Clock
 from sports_calendar.google_calendar.auth import TOKEN_ERRORS, check_calendar_tokens
 from sports_calendar.heartbeat import Heartbeat
-from sports_calendar.log_setup import configure_logging
+from sports_calendar.logs import configure_logging
 from sports_calendar.queries_file import load_queries
 from sports_calendar.run import RunDeps, run_once
 from sports_calendar.storage.api_calls import APICallTracker

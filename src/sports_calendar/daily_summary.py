@@ -8,7 +8,7 @@ import logging
 
 from sports_calendar.clock import Clock
 from sports_calendar.config import API_CALL_CEILING
-from sports_calendar.log_setup import configure_logging
+from sports_calendar.logs import configure_logging
 from sports_calendar.storage.api_calls import APICallTracker
 from sports_calendar.storage.fetch_history import FetchHistory
 

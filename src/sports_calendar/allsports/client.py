@@ -6,7 +6,7 @@ import requests
 from pydantic import BaseModel, ValidationError
 
 from sports_calendar.storage.api_calls import APICallTracker
-from sports_calendar.utils import sanitize_for_log
+from sports_calendar.logs import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
