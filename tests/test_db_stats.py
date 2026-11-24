@@ -205,7 +205,7 @@ def test_avg_daily_calls_returns_zero_on_empty_db(empty_api_db):
 
 
 def test_avg_daily_calls_rounds_to_2dp_by_default(api_db):
-    # 75.0 rounds to 75.0 — use a non-round average to verify rounding
+    # 75.0 rounds to 75.0, so a non-round average checks the rounding
     # (40 + 100 + 60) / 3 = 66.666... → 66.67
     result = avg_daily_calls(api_db)
     assert isinstance(result, float)
@@ -506,7 +506,7 @@ def test_teams_with_no_upcoming_match_returns_empty_on_empty_db(empty_fetch_db):
 # --- stale_teams ---
 
 def test_stale_teams_returns_correct_teams(fetch_db):
-    # fetch_db: Alcaraz fetched 5h ago, Fever fetched 10h ago — both stale at threshold=4h
+    # fetch_db: Alcaraz fetched 5h ago, Fever fetched 10h ago: both stale at threshold=4h
     df = stale_teams(hours=4, db_path=fetch_db)
     assert len(df) == 2
 

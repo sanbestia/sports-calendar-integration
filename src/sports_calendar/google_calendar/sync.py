@@ -110,7 +110,7 @@ def _index_by_game_id(events: list[dict]) -> dict[str, dict]:
         if game_id:
             by_game_id[game_id] = event
         else:
-            logger.warning(f"Skipping event '{sanitize_for_log(event.get('summary', 'unknown'))}' — no game_id in extendedProperties")
+            logger.warning(f"Skipping event '{sanitize_for_log(event.get('summary', 'unknown'))}': no game_id in extendedProperties")
     return by_game_id
 
 
@@ -178,7 +178,7 @@ class _CalendarWriter:
         except HttpError as error:
             logger.error(f"An error occurred: {error}")
             return False
-        logger.info(f'Event created: {sanitize_for_log(str(created_event.get("summary", "")))} — {sanitize_for_log(str(created_event.get("htmlLink", "")))}')
+        logger.info(f'Event created: {sanitize_for_log(str(created_event.get("summary", "")))} | {sanitize_for_log(str(created_event.get("htmlLink", "")))}')
         return True
 
     def update(self, event: dict, game: Match) -> None:
@@ -191,7 +191,7 @@ class _CalendarWriter:
             eventId=event['id'],
             body=event_to_update
         ), self._clock)
-        logger.info(f'Event updated: {sanitize_for_log(str(updated_event.get("summary", "")))} — {sanitize_for_log(str(updated_event.get("htmlLink", "")))}')
+        logger.info(f'Event updated: {sanitize_for_log(str(updated_event.get("summary", "")))} | {sanitize_for_log(str(updated_event.get("htmlLink", "")))}')
 
     def delete(self, event: dict) -> bool:
         """Delete an event. Returns False, after logging the error, when the Calendar refuses it."""

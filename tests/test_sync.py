@@ -51,7 +51,7 @@ def make_existing_event(game_id="123", side_one="Team A", side_two="Team B", sta
 def make_mock_service(existing_events: list) -> MagicMock:
     """Helper to create a fake Google Calendar service."""
     mock_service = MagicMock()
-    mock_service.events().list().execute.return_value = {"items": existing_events}  # no nextPageToken — single page
+    mock_service.events().list().execute.return_value = {"items": existing_events}  # no nextPageToken: a single page
     mock_service.events().get().execute.return_value = existing_events[0] if existing_events else {}
     return mock_service
 
@@ -598,7 +598,7 @@ def test_raises_after_max_retries():
 
 
 def test_raises_immediately_on_non_retryable_http_error():
-    """Does not retry on 403 Forbidden — not a transient error."""
+    """Does not retry on 403 Forbidden: it is not a transient error."""
     clock = FakeClock()
     error = make_http_error(403)
     request = make_request(side_effect=error)
@@ -609,7 +609,7 @@ def test_raises_immediately_on_non_retryable_http_error():
 
 
 def test_raises_on_broken_pipe_immediately():
-    """Propagates BrokenPipeError without retrying — reconnection is the caller's responsibility."""
+    """Propagates BrokenPipeError without retrying: the caller reconnects."""
     clock = FakeClock()
     request = make_request(side_effect=BrokenPipeError)
     with pytest.raises(BrokenPipeError):
