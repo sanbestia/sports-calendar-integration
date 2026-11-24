@@ -1,7 +1,7 @@
 """Log one line with yesterday's totals: API calls, fetches by outcome, and calendar changes.
 
 The summary timer starts it each day at 00:05 (deploy/sports-calendar-summary.timer). To run it by hand:
-`uv run python -m sports_calendar.tools.daily_summary`.
+`uv run sports-calendar-summary`.
 """
 import datetime
 import logging
@@ -36,7 +36,8 @@ def log_daily_summary(api_tracker: APICallTracker, history: FetchHistory, day: d
     )
 
 
-def main(clock: Clock | None = None, api_tracker: APICallTracker | None = None, history: FetchHistory | None = None) -> None:
+def log_yesterday_summary(clock: Clock | None = None, api_tracker: APICallTracker | None = None,
+                          history: FetchHistory | None = None) -> None:
     """Log the summary of yesterday (the local date). Without arguments it uses the real clock and databases."""
     clock = clock if clock is not None else Clock()
     yesterday = clock.today() - datetime.timedelta(days=1)
@@ -45,6 +46,8 @@ def main(clock: Clock | None = None, api_tracker: APICallTracker | None = None, 
                       yesterday)
 
 
-if __name__ == "__main__":
+
+def main() -> None:
+    """Entry point of `uv run sports-calendar-summary`, which the summary timer starts."""
     configure_logging()
-    main()
+    log_yesterday_summary()

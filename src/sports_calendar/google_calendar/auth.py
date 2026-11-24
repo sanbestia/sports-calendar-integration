@@ -1,5 +1,5 @@
 # check validity of stored tokens
-# a new token comes only from the browser login: `uv run python -m sports_calendar.google_calendar.auth`
+# a new token comes only from the browser login: `uv run google-login`
 
 import logging
 import os.path
@@ -97,6 +97,8 @@ def log_in_if_needed(token_path: str = "token.json", credentials_path: str = "cr
     return creds
 
 
-if __name__ == "__main__":
+
+def main() -> None:
+    """Entry point of `uv run google-login`: check the stored token, and open the browser login only when it is needed."""
     configure_logging()
     log_in_if_needed()

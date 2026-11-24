@@ -316,14 +316,14 @@ def main(argv: list[str] | None = None) -> None:
         except TypeError:
             pass
 
-    _parser = argparse.ArgumentParser(prog="python -m sports_calendar.tools.db_stats", add_help=True)
+    _parser = argparse.ArgumentParser(prog="db-stats", add_help=True)
     _parser.add_argument("function", nargs="?", metavar="FUNCTION")
     _parser.add_argument("params", nargs="*", metavar="PARAM")
     _args = _parser.parse_args(argv)
 
     if not _args.function:
         _log.warning("No function specified.")
-        _log.warning("Usage: uv run python -m sports_calendar.tools.db_stats <function> [params...]")
+        _log.warning("Usage: uv run db-stats <function> [params...]")
         _log.warning("")
         _log.warning("Available functions:")
         for _fn_name, _fn in sorted(_available_fns.items()):
@@ -349,7 +349,7 @@ def main(argv: list[str] | None = None) -> None:
         _missing_params = [name for name, _ in _required_params[len(_args.params):]]
         _log.error(f"'{_args.function}' requires: {', '.join(n for n, _ in _required_params)}")
         _log.error(f"Missing: {', '.join(_missing_params)}")
-        _log.error(f"Usage: uv run python -m sports_calendar.tools.db_stats {_args.function} {' '.join(f'<{n}>' for n, _ in _required_params)}")
+        _log.error(f"Usage: uv run db-stats {_args.function} {' '.join(f'<{n}>' for n, _ in _required_params)}")
         sys.exit(1)
 
     # Convert each CLI string to the type declared in the parameter's annotation
@@ -396,7 +396,3 @@ def main(argv: list[str] | None = None) -> None:
             _log.info("(none)")
     else:
         _log.info(_result)
-
-
-if __name__ == "__main__":
-    main()

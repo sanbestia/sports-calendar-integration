@@ -66,7 +66,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 
 4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**. Choose **Desktop app**, give it a name, and download the resulting file. Rename it to `credentials.json` and place it in the root directory of the project.
 
-5. Log in once, on a computer with a browser: run `uv run python -m sports_calendar.google_calendar.auth`. A browser window asks you to authorise the app with your Google account. After you confirm, a `token.json` file is created, and later runs reuse it. The service itself never opens a browser: without a valid `token.json` it logs an error and stops (see [Renewing the Google login](#renewing-the-google-login)).
+5. Log in once, on a computer with a browser: run `uv run google-login`. A browser window asks you to authorise the app with your Google account. After you confirm, a `token.json` file is created, and later runs reuse it. The service itself never opens a browser: without a valid `token.json` it logs an error and stops (see [Renewing the Google login](#renewing-the-google-login)).
 
 > **Note:** If you see a "Google hasn't verified this app" warning, click **Advanced → Go to (app name)** to proceed. This appears because Google has not verified the app, and is expected behaviour.
 
@@ -115,7 +115,7 @@ When a team has no upcoming match, it is checked every `unknown.recheck_hours` f
 
 A failed fetch (a timeout, an unreadable response, or a Calendar error) is not treated as "no matches". The team is retried after `failed.recheck_hours`, and the wait doubles for each failure in a row up to `failed.max_recheck_hours`, so one broken team cannot use the daily API budget. A successful fetch returns the team to its normal schedule. An error for one team is logged and does not stop the service or the other teams.
 
-The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit). Normal use should not often go above 70 calls per day (`API_CALL_CEILING`), which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the ceiling when you change `FETCH_THRESHOLDS` or add teams (`uv run python -m sports_calendar.tools.db_stats avg_daily_calls`).
+The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit). Normal use should not often go above 70 calls per day (`API_CALL_CEILING`), which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the ceiling when you change `FETCH_THRESHOLDS` or add teams (`uv run db-stats avg_daily_calls`).
 
 ### Local state files
 
@@ -127,10 +127,10 @@ On first run, the program automatically creates two SQLite database files in the
 
 ### Looking up team and player IDs
 
-The `id` values in `queries.json` come from the AllSports API. To look them up, run `get_ids` as a standalone script:
+The `id` values in `queries.json` come from the AllSports API. To look them up, run `get-ids`:
 
 ```bash
-uv run python -m sports_calendar.tools.get_ids
+uv run get-ids
 ```
 
 You will be prompted to enter a name and sport, shown a list of matches to choose from, and asked to confirm your selection. At the end, the script prints a summary of all selected entries with their IDs. API calls made during the search are tracked against your daily limit. Like the main script, it reads `RAPIDAPI_KEY` from `.env`.
@@ -140,15 +140,15 @@ You will be prompted to enter a name and sport, shown a list of matches to choos
 To add an entry to `queries.json` without editing the file by hand:
 
 ```bash
-uv run python -m sports_calendar.tools.add_entity
+uv run add-entity
 ```
 
-It runs the same search as `get_ids`. For each entity you pick, it asks for the name to use in `queries.json` (Enter keeps the API name) and for the calendar: one of the env keys the file already uses, or another key from `.env`. It refuses an entry whose calendar key is not set in `.env`, a name that is already in the file, and an entity (same id and sport) that is already tracked. At the end it offers to upload the file and deploy.
+It runs the same search as `get-ids`. For each entity you pick, it asks for the name to use in `queries.json` (Enter keeps the API name) and for the calendar: one of the env keys the file already uses, or another key from `.env`. It refuses an entry whose calendar key is not set in `.env`, a name that is already in the file, and an entity (same id and sport) that is already tracked. At the end it offers to upload the file and deploy.
 
 To upload `queries.json` and deploy later, or after editing it by hand:
 
 ```bash
-uv run python -m sports_calendar.tools.push_queries
+uv run push-queries
 ```
 
 It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON) and starts the deploy workflow on `main`, which writes the file to the VM and starts a run. It runs `gh` as the repository owner's account, not as `gh`'s active account.
@@ -157,7 +157,7 @@ It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is v
 
 Once you have your IDs, create a `queries.json` file in the root directory and run:
 ```bash
-uv run python main.py
+uv run sports-calendar
 ```
 
 It reads `queries.json`. To read another file, add `--queries <path>`. Each start is one run: it fetches and syncs every team that is due, then exits. On the server, a systemd timer starts a run every 15 minutes (see "Continuous integration").
@@ -193,7 +193,7 @@ journalctl -u sports-calendar-summary --since -7d     # the daily summaries
 systemctl list-timers 'sports-calendar*'              # when the next run and the next summary start
 ```
 
-At INFO level you see each fetch, a one-line summary of the matches found, each event created, updated or deleted, and, after a run that did work, the API call count with the version (git commit). Each day at 00:05, the `sports-calendar-summary` unit logs a summary of the previous day (API calls, fetches by result, event changes; a WARNING when the calls were above `API_CALL_CEILING`); to log it by hand, run `uv run python -m sports_calendar.tools.daily_summary`. systemd adds its own lines for each run (`Starting`, `Finished`, the CPU time), about 4 lines every 15 minutes. Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events, skipped teams, the token check and the heartbeat line are logged at DEBUG.
+At INFO level you see each fetch, a one-line summary of the matches found, each event created, updated or deleted, and, after a run that did work, the API call count with the version (git commit). Each day at 00:05, the `sports-calendar-summary` unit logs a summary of the previous day (API calls, fetches by result, event changes; a WARNING when the calls were above `API_CALL_CEILING`); to log it by hand, run `uv run sports-calendar-summary`. systemd adds its own lines for each run (`Starting`, `Finished`, the CPU time), about 4 lines every 15 minutes. Warnings and errors start with their level name (`WARNING`, `ERROR`). Per-match details, "already up to date" events, skipped teams, the token check and the heartbeat line are logged at DEBUG.
 
 ### Alerts
 
@@ -209,7 +209,7 @@ Without `HEALTHCHECK_URL` the heartbeat is off. Anyone who has the ping URL can 
 
 The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), the service logs an ERROR that starts with `Google Calendar login needed`, sends a fail ping, and the run ends as failed. The timer starts the next run within 15 minutes, and each run checks the token again. To renew the token:
 
-1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run python -m sports_calendar.google_calendar.auth`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
+1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run google-login`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
 2. Copy it to the server: `scp token.json ubuntu@<server>:/home/ubuntu/sports_calendar_integration/token.json`.
 3. The next run, within 15 minutes, uses it. To use it at once and check it, run `sudo systemctl start sports-calendar` on the server: the command returns when the run ends, and it shows an error when the login still fails.
 
@@ -218,7 +218,7 @@ The service refreshes its Google token by itself. When Google refuses the token 
 uv run pytest -v
 ```
 
-The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths, the heartbeat's HTTP post), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. Only `main()` and `_build_and_run()` in `main.py`, and the `main()` of each tool, build the real ones.
+The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths, the heartbeat's HTTP post), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. Only `main()` and `_build_and_run()` in `src/sports_calendar/service.py`, and the `main()` of each command, build the real ones.
 
 ### Continuous integration
 
@@ -238,11 +238,11 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 
 **As a CLI** — call any function by name, with optional positional arguments:
 ```bash
-uv run python -m sports_calendar.tools.db_stats                        # list all available functions
-uv run python -m sports_calendar.tools.db_stats calls_today
-uv run python -m sports_calendar.tools.db_stats stale_teams 24
-uv run python -m sports_calendar.tools.db_stats calls_in_range 2026-01-01 2026-01-31
-uv run python -m sports_calendar.tools.db_stats calls_per_entity 7      # API calls per team over the last 7 days
+uv run db-stats                                         # list all available functions
+uv run db-stats calls_today
+uv run db-stats stale_teams 24
+uv run db-stats calls_in_range 2026-01-01 2026-01-31
+uv run db-stats calls_per_entity 7                      # API calls per team over the last 7 days
 ```
 
 **As a module** — import directly in a Python script or notebook:

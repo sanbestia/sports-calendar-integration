@@ -7,5 +7,5 @@ Description=Sports Calendar Integration daily summary
 Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/sports_calendar_integration
-ExecStart=/home/ubuntu/.local/bin/uv run --no-dev python -m sports_calendar.tools.daily_summary
+ExecStart=/home/ubuntu/.local/bin/uv run --no-dev sports-calendar-summary
 TimeoutStartSec=5min
