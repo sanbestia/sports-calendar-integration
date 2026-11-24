@@ -19,6 +19,10 @@ class FetchHistory(SqliteStore):
     def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None):
         super().__init__(db_path)
         self._clock = clock or Clock()
+        self._init_db()
+
+    def _init_db(self) -> None:
+        """Create the table and its index if they do not exist yet."""
         with self._connect() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS fetch_history (

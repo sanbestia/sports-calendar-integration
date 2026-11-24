@@ -66,7 +66,7 @@ def test_increment_persists_to_db():
     """Increment writes updated count to the database."""
     tracker = make_tracker()
     tracker.increment()
-    assert tracker._load() == 1
+    assert tracker.calls_on(tracker.current_date) == 1
 
 
 def test_status_returns_correct_string():
