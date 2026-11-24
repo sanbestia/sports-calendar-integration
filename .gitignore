@@ -21,6 +21,3 @@ fetch_log.db
 
 # Personal queries
 queries.json
-
-# Execution bat
-calendar.bat
