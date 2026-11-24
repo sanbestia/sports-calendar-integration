@@ -172,6 +172,15 @@ def test_search_entity_includes_sport_segment_for_non_football():
     assert "/basketball/search/spurs" in called_url
 
 
+def test_search_entity_stores_the_sport_in_the_lowercase_form_of_the_api_paths():
+    """The hit keeps the sport as the search URL used it, so the fetches of the stored entity build the same path."""
+    session = FakeSession(FAKE_PLAYER_ENTITY)
+    [hit] = search_entity(make_client(session), "alcaraz", "Tennis")
+
+    assert "/tennis/search/alcaraz" in session.urls[-1]
+    assert hit["sport"] == "tennis"
+
+
 def test_search_entity_returns_multiple_hits():
     """Returns all hits when API returns multiple results."""
     session = FakeSession(FAKE_MULTIPLE_ENTITIES)

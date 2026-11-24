@@ -17,6 +17,11 @@ _TIMEOUT_SECONDS = 10
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 
 
+def sport_path_prefix(sport: str) -> str:
+    """Return the segment that starts the API path of a sport: none for football, the API's default sport."""
+    return "" if sport == "football" else f"{sport}/"
+
+
 class AllSportsError(Exception):
     """A request to the AllSports API failed, or its response could not be read."""
 

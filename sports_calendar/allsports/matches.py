@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from sports_calendar.match import Match
-from sports_calendar.allsports.client import AllSportsClient, AllSportsError
+from sports_calendar.allsports.client import AllSportsClient, AllSportsError, sport_path_prefix
 from sports_calendar.allsports.schemas import NextPageResponse, NearResponse
 from sports_calendar.utils import sanitize_for_log
 
@@ -12,9 +12,8 @@ logger = logging.getLogger(__name__)
 
 def _build_api_path(sport: str, player_type: str, team_id: str, endpoint: str, page: int | None = None) -> str:
     """Build an AllSports API path (the part after the base URL) for the given sport, entity, and endpoint."""
-    sport_segment = f"{sport}/" if sport != "football" else ""  # football is the AllSports API default — no sport prefix in the URL path
     event_type = "events" if sport == "tennis" else "matches"  # the API uses 'events' for tennis and 'matches' for all other sports
-    path = f"{sport_segment}{player_type}/{team_id}/{event_type}/{endpoint}"
+    path = f"{sport_path_prefix(sport)}{player_type}/{team_id}/{event_type}/{endpoint}"
     if page is not None:
         path += f"/{page}"
     return path
