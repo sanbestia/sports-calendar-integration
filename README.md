@@ -74,7 +74,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 
 ## Configuration
 
-Create a `.env` file in the root directory with the following variables:
+Create a `.env` file in the root directory (on the server: in `/var/lib/sports-calendar`, see "Local state files") with the following variables:
 ```env
 RAPIDAPI_KEY=your_rapidapi_key_here
 
@@ -120,6 +120,8 @@ The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit)
 ### Local state files
 
 On first run, the program automatically creates two SQLite database files in the working directory: `api_calls.db` to track your daily API usage, and `fetch_log.db` to remember when each team was last fetched. `fetch_log.db` also holds `fetch_history`, one row per fetch: when, which team, the result (`matches`, `empty` or `failed`), the API calls it used, the matches found, the events created, updated and deleted, and a short error text. These are managed automatically and you don't need to touch them.
+
+On the server, the units set the working directory to `/var/lib/sports-calendar` (systemd `StateDirectory=`, mode 0700). That folder holds the two databases, `queries.json`, `token.json` and `.env`, outside the git checkout, so a `git reset` or `git clean` in the checkout cannot delete the data or the secrets. To query the databases there, run `cd /var/lib/sports-calendar && uv run --project /home/ubuntu/sports_calendar_integration db-stats <function>`.
 
 ---
 
@@ -210,7 +212,7 @@ Without `HEALTHCHECK_URL` the heartbeat is off. Anyone who has the ping URL can 
 The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), the service logs an ERROR that starts with `Google Calendar login needed`, sends a fail ping, and the run ends as failed. The timer starts the next run within 15 minutes, and each run checks the token again. To renew the token:
 
 1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run google-login`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
-2. Copy it to the server: `scp token.json ubuntu@<server>:/home/ubuntu/sports_calendar_integration/token.json`.
+2. Copy it to the server: `scp token.json ubuntu@<server>:/var/lib/sports-calendar/token.json`.
 3. The next run, within 15 minutes, uses it. To use it at once and check it, run `sudo systemctl start sports-calendar` on the server: the command returns when the run ends, and it shows an error when the login still fails.
 
 ### Running tests

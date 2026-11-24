@@ -29,8 +29,21 @@ def test_unit_is_one_run_of_the_script_with_the_queries_file():
     service = read_unit("sports-calendar.service")["Service"]
 
     assert service["Type"] == "oneshot"
-    assert service["ExecStart"].endswith("uv run --no-dev sports-calendar --queries queries.json")
-    assert service["WorkingDirectory"] == "/home/ubuntu/sports_calendar_integration"
+    assert service["ExecStart"].endswith("uv run --project /home/ubuntu/sports_calendar_integration --no-dev sports-calendar --queries queries.json")
+
+
+def test_both_units_keep_their_data_in_the_state_folder_outside_the_checkout():
+    """The databases, queries.json, token.json and .env must not live in the git checkout, where a git clean deletes them."""
+    for name in ("sports-calendar.service", "sports-calendar-summary.service"):
+        service = read_unit(name)["Service"]
+        assert service["StateDirectory"] == "sports-calendar"
+        assert service["StateDirectoryMode"] == "0700"
+        assert service["WorkingDirectory"] == "/var/lib/sports-calendar"
+
+
+def test_deploy_writes_queries_to_the_state_folder():
+    """The run reads queries.json from its working directory, so the deploy must write it there."""
+    assert any(line.endswith("> /var/lib/sports-calendar/queries.json") for line in deploy_lines())
 
 
 def test_unit_has_a_start_timeout():
@@ -59,7 +72,7 @@ def test_summary_runs_each_day_and_after_a_day_the_vm_was_down():
 
     assert timer["Timer"]["OnCalendar"] == "*-*-* 00:05:00"
     assert timer["Timer"]["Persistent"] == "true"
-    assert service["ExecStart"].endswith("uv run --no-dev sports-calendar-summary")
+    assert service["ExecStart"].endswith("uv run --project /home/ubuntu/sports_calendar_integration --no-dev sports-calendar-summary")
 
 
 def test_deploy_installs_every_unit_file():
@@ -94,8 +107,13 @@ def test_deploy_steps_run_in_order():
     assert positions == sorted(positions)
 
 
-def test_deploy_script_stops_at_the_first_failed_command():
-    """Without set -e, the script goes on after a failed command, and the job reports only the last command."""
+def test_each_deploy_script_stops_at_the_first_failed_command():
+    """Without set -e, a script goes on after a failed command, and the job reports only the last command."""
     lines = deploy_lines()
+    starts = [i for i, line in enumerate(lines) if line == "script: |"]
+    ends = [next((j for j in range(start + 1, len(lines)) if lines[j].startswith("- name:")), len(lines)) for start in starts]
 
-    assert lines.index("set -e") < lines.index("git fetch origin main")
+    assert len(starts) == 2  # write queries.json, then deploy
+    for start, end in zip(starts, ends):
+        commands = [line for line in lines[start + 1:end] if line and not line.startswith("#")]
+        assert commands[0] == "set -e"
