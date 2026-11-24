@@ -65,17 +65,31 @@ def add_query(path: str, name: str, entity: Mapping[str, str], calendar_key: str
     file as it was, when the calendar key is not set in env, the name is taken, or the same id and sport are
     already tracked under another name.
     """
+    _check_calendar_key(calendar_key, env)
+    queries = read_queries(path)
+    _check_not_tracked(queries, path, name, entity)
+    queries[name] = {"id": entity["id"], "sport": entity["sport"], "player_type": entity["player_type"], "calendar": calendar_key}
+    _write_queries(path, queries)
+
+
+def _check_calendar_key(calendar_key: str, env: Mapping[str, str]) -> None:
+    """Raise QueryError when env does not hold the calendar key, because the service would then refuse to start."""
     if not env.get(calendar_key):
         raise QueryError(f"{calendar_key} is not set in the environment (.env); the service would refuse to start")
-    queries = read_queries(path)
+
+
+def _check_not_tracked(queries: Mapping[str, dict], path: str, name: str, entity: Mapping[str, str]) -> None:
+    """Raise QueryError when the name is taken, or when the same id and sport are tracked under another name."""
     if name in queries:
         raise QueryError(f"'{name}' is already in {path}")
     for existing_name, existing in queries.items():
         if (existing["id"], existing["sport"]) == (entity["id"], entity["sport"]):
             raise QueryError(f"{entity['sport']} id {entity['id']} is already tracked as '{existing_name}'")
 
-    queries[name] = {"id": entity["id"], "sport": entity["sport"], "player_type": entity["player_type"], "calendar": calendar_key}
+
+def _write_queries(path: str, queries: Mapping[str, dict]) -> None:
+    """Write the entries through a temporary file: a crash mid-write leaves the old file, never half a file."""
     temporary = f"{path}.tmp"
     with open(temporary, "w", encoding="utf-8") as f:
         f.write(json.dumps(queries, indent=4, ensure_ascii=False))
-    os.replace(temporary, path)  # a crash mid-write leaves the old file, never half a file
+    os.replace(temporary, path)

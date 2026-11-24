@@ -24,16 +24,26 @@ def push_queries(path: str = "queries.json", repo: str = REPO, account: str | No
     may be a different one. Raises ValueError for a file that is not valid JSON, before anything is sent,
     and CalledProcessError when a gh command fails.
     """
-    with open(path, "rb") as f:
-        raw = f.read()
-    json.loads(raw)  # never upload a broken file: the next deploy would install it on the VM
-    account = account or repo.split("/")[0]
-    token = run(["gh", "auth", "token", "--user", account], capture_output=True, text=True, check=True).stdout.strip()
-    gh_env = {**env, "GH_TOKEN": token}
-    run(["gh", "secret", "set", SECRET, "--repo", repo], input=base64.b64encode(raw).decode(), text=True,
+    content = _read_valid_json(path)
+    gh_env = _env_with_token(account or repo.split("/")[0], env, run)
+    run(["gh", "secret", "set", SECRET, "--repo", repo], input=base64.b64encode(content).decode(), text=True,
         check=True, env=gh_env)
     run(["gh", "workflow", "run", "deploy.yml", "--repo", repo, "--ref", "main"], check=True, env=gh_env)
     logger.info(f"Updated {SECRET} and started the deploy of main. Follow it with: gh run watch --repo {repo}")
+
+
+def _read_valid_json(path: str) -> bytes:
+    """Return the file's bytes; raise ValueError when it is not valid JSON, because the next deploy would install it on the VM."""
+    with open(path, "rb") as f:
+        content = f.read()
+    json.loads(content)
+    return content
+
+
+def _env_with_token(account: str, env: Mapping[str, str], run: Callable[..., subprocess.CompletedProcess]) -> dict[str, str]:
+    """Return env plus the GH_TOKEN of the account, so gh runs as that account and not as gh's active account."""
+    token = run(["gh", "auth", "token", "--user", account], capture_output=True, text=True, check=True).stdout.strip()
+    return {**env, "GH_TOKEN": token}
 
 
 def main() -> None:
