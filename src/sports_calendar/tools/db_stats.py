@@ -191,14 +191,14 @@ def api_budget_forecast(db_path: str = API_CALLS_DB, limit: int = MAX_API_CALLS)
 # --- Fetch log ---
 
 def all_fetches_df(db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFrame:
-    """Return a DataFrame of all teams with their last fetch info.
+    """Return a DataFrame of all entities with their last fetch info.
 
     raw=False (default): datetime columns formatted as 'DD-MM-YYYY HH:MM:SS +00:00' strings.
     raw=True: datetime columns as pandas Timestamps for programmatic use.
     """
     with _connect(db_path) as conn:
         df = pd.read_sql_query(
-            "SELECT team_name, last_fetched, next_match, match_count FROM fetch_log ORDER BY team_name",
+            "SELECT team_name AS entity, last_fetched, next_match, match_count FROM fetch_log ORDER BY team_name",
             conn
         )
     df["last_fetched"] = pd.to_datetime(df["last_fetched"], utc=True)
@@ -207,9 +207,9 @@ def all_fetches_df(db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFra
 
 
 def fetch_gap_df(db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFrame:
-    """Return a DataFrame with derived timing columns per team.
+    """Return a DataFrame with derived timing columns per entity.
 
-    Columns: team_name, last_fetched, next_match, match_count,
+    Columns: entity, last_fetched, next_match, match_count,
              hours_since_fetch, hours_until_match
 
     raw=False (default): datetime columns formatted as strings, floats rounded to 2dp.
@@ -222,24 +222,24 @@ def fetch_gap_df(db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFrame
     return df if raw else _formatted(df)
 
 
-def teams_due_now(db_path: str = FETCH_LOG_DB) -> list[str]:
-    """Return team names that the scheduler would fetch right now.
+def entities_due_now(db_path: str = FETCH_LOG_DB) -> list[str]:
+    """Return the names of the entities that the scheduler would fetch right now.
 
     It asks a read-only FetchTracker, so the result follows the scheduler's own rules and the database is not changed.
     """
     tracker = FetchTracker(db_path=db_path, read_only=True)
-    df = all_fetches_df(db_path, raw=True)  # raw=True; team_name column is unaffected by formatting
-    return [name for name in df["team_name"] if tracker.should_fetch(name)]
+    df = all_fetches_df(db_path, raw=True)  # raw=True; the entity column is unaffected by formatting
+    return [name for name in df["entity"] if tracker.should_fetch(name)]
 
 
-def teams_with_no_upcoming_match(db_path: str = FETCH_LOG_DB) -> list[str]:
-    """Return team names for which no upcoming match is recorded."""
+def entities_with_no_upcoming_match(db_path: str = FETCH_LOG_DB) -> list[str]:
+    """Return the names of the entities for which no upcoming match is recorded."""
     df = all_fetches_df(db_path, raw=True)  # raw=True so isna() works on Timestamps (not empty strings)
-    return df[df["next_match"].isna()]["team_name"].tolist()
+    return df[df["next_match"].isna()]["entity"].tolist()
 
 
-def stale_teams(hours: float = 48, db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFrame:
-    """Return teams not fetched in the last `hours` hours, regardless of their schedule.
+def stale_entities(hours: float = 48, db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFrame:
+    """Return the entities not fetched in the last `hours` hours, regardless of their schedule.
 
     Sorted by hours_since_fetch descending (stalest first).
 

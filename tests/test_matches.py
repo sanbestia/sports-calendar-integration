@@ -283,14 +283,14 @@ def test_converts_start_time_to_given_time_zone():
     assert start.utcoffset() == datetime.timedelta(hours=-3)
 
 
-@pytest.mark.parametrize("sport, player_type, team_id, endpoint, page, expected_path", [
+@pytest.mark.parametrize("sport, player_type, entity_id, endpoint, page, expected_path", [
     ("football", "team", "4819", "next", 0, "team/4819/matches/next/0"),          # football has no sport prefix
     ("tennis", "player", "206570", "next", 2, "tennis/player/206570/events/next/2"),  # tennis uses 'events'
     ("basketball", "team", "3427", "near", None, "basketball/team/3427/matches/near"),
 ])
-def test_build_api_path(sport, player_type, team_id, endpoint, page, expected_path):
+def test_build_api_path(sport, player_type, entity_id, endpoint, page, expected_path):
     """Paths follow the AllSports rules for sport prefix, event type and page."""
-    assert _build_api_path(sport, player_type, team_id, endpoint, page) == expected_path
+    assert _build_api_path(sport, player_type, entity_id, endpoint, page) == expected_path
 
 
 @pytest.mark.parametrize("near_body", [{}, {"nextEvent": None}, {"previousEvent": FAKE_EVENT}])

@@ -72,7 +72,7 @@ def test_skips_event_missing_extended_properties():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().insert.assert_called_once()
@@ -89,7 +89,7 @@ def test_creates_new_event_when_no_existing():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().insert.assert_called_once()
@@ -107,7 +107,7 @@ def test_does_not_create_event_when_already_exists_and_unchanged():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().insert.assert_not_called()
@@ -129,7 +129,7 @@ def test_updates_event_when_start_time_changed():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().update.assert_called_once()
@@ -148,7 +148,7 @@ def test_updates_event_when_team_name_changed():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().update.assert_called_once()
@@ -169,7 +169,7 @@ def test_updates_event_when_team_ids_missing():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().update.assert_called_once()
@@ -188,7 +188,7 @@ def test_handles_multiple_matches():
         calendar_id="fake_calendar_id",
         game_list=[match_1, match_2],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     assert mock_service.events().insert.call_count == 2
@@ -207,7 +207,7 @@ def test_returns_correct_count_with_multiple_existing_events():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     assert result.event_count == 1
@@ -226,7 +226,7 @@ def test_deletes_orphaned_event_for_same_team():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().delete.assert_called_once_with(
@@ -245,7 +245,7 @@ def test_deletes_orphaned_event_when_queried_team_is_away():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="a1"  # queried team is the away side
+        entity_id="a1"  # the tracked entity is the away side
     )
 
     mock_service.events().delete.assert_called_once_with(
@@ -264,7 +264,7 @@ def test_does_not_delete_event_for_different_team():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().delete.assert_not_called()
@@ -283,7 +283,7 @@ def test_does_not_delete_event_without_team_ids():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().delete.assert_not_called()
@@ -306,7 +306,7 @@ def test_does_not_delete_past_event():
         calendar_id="fake_calendar_id",
         game_list=[match],
         time_zone="UTC",
-        team_id="h1"
+        entity_id="h1"
     )
 
     mock_service.events().delete.assert_not_called()
@@ -330,7 +330,7 @@ def test_reads_every_page_of_existing_events():
     ]
 
     result = update_events(
-        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
         game_list=[make_match(game_id="111"), make_match(game_id="222")],
     )
 
@@ -345,7 +345,7 @@ def test_continues_and_does_not_count_when_insert_fails(caplog):
     mock_service.events().insert().execute.side_effect = [make_http_error(), {"summary": "ok"}]
 
     result = update_events(
-        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
         game_list=[make_match(game_id="1"), make_match(game_id="2")],
     )
 
@@ -360,7 +360,7 @@ def test_continues_when_delete_fails(caplog):
     mock_service.events().delete().execute.side_effect = make_http_error()
 
     result = update_events(
-        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
         game_list=[make_match(game_id="123")],
     )
 
@@ -376,7 +376,7 @@ def test_count_excludes_deleted_orphan():
     mock_service = make_mock_service([kept, orphan])
 
     result = update_events(
-        service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+        service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
         game_list=[make_match(game_id="123")],
     )
 
@@ -392,7 +392,7 @@ def test_update_keeps_fields_not_in_event_body():
     mock_service.events().get().execute.return_value = full_event
     moved = make_match(game_id="123", start_time=FUTURE_START_TIME + datetime.timedelta(hours=2))
 
-    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=[moved])
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1", game_list=[moved])
 
     body = mock_service.events().update.call_args.kwargs["body"]
     assert body["attendees"] == [{"email": "friend@example.com"}]
@@ -446,7 +446,7 @@ def test_updates_event_when_tournament_changed():
     """A new tournament name updates the title (seen in prod: an 'NBA 26/27' game renamed to 'NBA Cup 2026')."""
     mock_service = make_mock_service([make_existing_event(tournament="NBA 26/27")])
 
-    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
                   game_list=[make_match(tournament="NBA Cup 2026")])
 
     body = mock_service.events().update.call_args.kwargs["body"]
@@ -457,7 +457,7 @@ def test_updates_event_when_stage_changed():
     """A new stage name (for example a round that gets its real name) updates the title."""
     mock_service = make_mock_service([make_existing_event(stage="Round 4")])
 
-    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
                   game_list=[make_match(stage="Quarterfinal")])
 
     mock_service.events().update.assert_called_once()
@@ -467,7 +467,7 @@ def test_does_not_update_when_title_and_details_unchanged():
     """An event whose title and stored details all match is left alone, so no Calendar call is wasted."""
     mock_service = make_mock_service([make_existing_event(tournament="NBA 26/27", stage="NBA")])
 
-    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
                   game_list=[make_match(tournament="NBA 26/27", stage="NBA")])
 
     mock_service.events().update.assert_not_called()
@@ -486,7 +486,7 @@ def test_update_events_uses_clock_for_lookback_window():
     clock = FakeClock(datetime.datetime(2026, 1, 15, 12, 0, 0, 123456, tzinfo=datetime.timezone.utc))
     mock_service = make_mock_service([])
 
-    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1",
+    update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
                   game_list=[make_match()], clock=clock)
 
     assert mock_service.events().list.call_args.kwargs["timeMin"] == "2026-01-15T00:00:00+00:00"
@@ -505,7 +505,7 @@ def test_reports_what_it_created_updated_and_deleted():
         make_match(game_id="2"),                                                              # new
     ]
 
-    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=games)
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1", game_list=games)
 
     assert result == SyncResult(event_count=2, created=1, updated=1, deleted=1)
 
@@ -522,7 +522,7 @@ def test_an_event_this_app_wrote_is_up_to_date_at_the_next_sync(home_team_id, aw
     written = {**_build_event_body(match, "UTC", UPDATED_AT), "id": "event_written_before"}
     mock_service = make_mock_service([written])
 
-    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=[match])
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1", game_list=[match])
 
     mock_service.events().update.assert_not_called()
     mock_service.events().insert.assert_not_called()
@@ -536,7 +536,7 @@ def test_a_sport_without_an_icon_gets_the_default_icon():
     match.sport = "darts"
     mock_service = make_mock_service([])
 
-    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", team_id="h1", game_list=[match])
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1", game_list=[match])
 
     body = mock_service.events().insert.call_args.kwargs["body"]
     assert body["summary"] == f"{DEFAULT_ICON} Team A vs Team B - Some League (Round 1)"

@@ -240,7 +240,7 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 ```bash
 uv run db-stats                                         # list all available functions
 uv run db-stats calls_today
-uv run db-stats stale_teams 24
+uv run db-stats stale_entities 24
 uv run db-stats calls_in_range 2026-01-01 2026-01-31
 uv run db-stats calls_per_entity 7                      # API calls per team over the last 7 days
 ```
@@ -252,7 +252,7 @@ from sports_calendar.tools.db_stats import (
     days_at_max, pct_days_at_max, avg_daily_calls,
     busiest_days, calls_per_period, api_budget_forecast,
     all_calls_df, all_fetches_df, fetch_gap_df,
-    teams_due_now, teams_with_no_upcoming_match, stale_teams,
+    entities_due_now, entities_with_no_upcoming_match, stale_entities,
     calls_per_entity, outcomes_per_entity, recent_failures,
 )
 
@@ -264,8 +264,8 @@ pct_days_at_max()                    # % of days the limit was reached
 busiest_days(5)                      # top 5 days by call volume (DataFrame)
 calls_per_period("ME")               # monthly totals (DataFrame)
 api_budget_forecast()                # projected end-of-day total based on current rate
-teams_due_now()                      # teams the scheduler would fetch right now
-stale_teams(hours=48)                # teams not fetched in over 48 hours (DataFrame)
+entities_due_now()                      # entities the scheduler would fetch right now
+stale_entities(hours=48)                # entities not fetched in over 48 hours (DataFrame)
 calls_per_entity(7)                  # API calls and fetches per team, last 7 days (DataFrame)
 outcomes_per_entity(30)              # matches / empty / failed fetches per team, last 30 days (DataFrame)
 recent_failures(7)                   # failed fetches with their error, newest first (DataFrame)

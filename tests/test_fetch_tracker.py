@@ -28,7 +28,7 @@ def _close_trackers():
         _created_trackers.pop().close()
 
 
-def seed_entry(tracker: FetchTracker, team_name: str, hours_ago: float, days_until_match: float | None, match_count: int = 0) -> None:
+def seed_entry(tracker: FetchTracker, entity_name: str, hours_ago: float, days_until_match: float | None, match_count: int = 0) -> None:
     """Directly insert a fetch log entry into the tracker's database."""
     last_fetched = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
     next_match = datetime.now(timezone.utc) + timedelta(days=days_until_match) if days_until_match is not None else None
@@ -36,7 +36,7 @@ def seed_entry(tracker: FetchTracker, team_name: str, hours_ago: float, days_unt
         conn.execute("""
             INSERT INTO fetch_log (team_name, last_fetched, next_match, match_count) VALUES (?, ?, ?, ?)
         """, (
-            team_name,
+            entity_name,
             last_fetched.isoformat(),
             next_match.isoformat() if next_match else None,
             match_count
