@@ -99,6 +99,7 @@ FETCH_THRESHOLDS = {
     "unknown":       {"recheck_hours": 8,                # no upcoming match found: wait 8h for the first grace_days
                       "grace_days": 3,                   # (playoff gaps between rounds, tennis between rounds and draws),
                       "max_recheck_hours": {"player": 12, "team": 48}},  # then double the wait for each empty result, up to the cap
+                                                         # (12h for players: a tennis draw can come out <24h before round 1)
     "imminent":      {"hours": 24, "recheck_hours": 4},  # single match within this many hours
     "imminent_close":{"hours": 3,  "recheck_hours": 1}, # single match within this many hours
     "season":        {"min_matches": 10, "min_recheck_hours": 24},  # a full season (10+ upcoming matches) waits at least 24h:
