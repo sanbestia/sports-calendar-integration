@@ -9,7 +9,7 @@ from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-from sports_calendar.log_setup import configure_logging
+from sports_calendar.logs import configure_logging
 
 # If modifying these scopes, delete the file token.json.
 SCOPES: list[str] = ["https://www.googleapis.com/auth/calendar"]

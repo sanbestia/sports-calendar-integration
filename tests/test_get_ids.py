@@ -1,5 +1,5 @@
 import pytest
-from sports_calendar.tools.get_ids import get_ids
+from sports_calendar.tools.get_ids import get_ids, pick_entity
 from tests.fakes import FakeSession, ScriptedInput, make_client
 
 
@@ -63,20 +63,67 @@ def test_returns_two_different_entries():
     assert "275923" in result
 
 
-# --- _ask_non_empty tests ---
+# --- pick_entity tests ---
 
-from sports_calendar.tools.get_ids import _ask_non_empty
+FAKE_HITS = [
+    {"id": "3429", "name": "San Antonio Spurs", "player_type": "team", "gender": "M", "sport": "basketball"},
+    {"id": "9999", "name": "San Antonio FC",    "player_type": "team", "gender": "M", "sport": "basketball"},
+]
 
-def test_ask_non_empty_returns_value_on_valid_input():
-    """Returns the input string when it is non-empty."""
-    assert _ask_non_empty("Enter: ", ask=ScriptedInput("hello")) == "hello"
-
-
-def test_ask_non_empty_strips_whitespace():
-    """Strips surrounding whitespace from the input."""
-    assert _ask_non_empty("Enter: ", ask=ScriptedInput("  hello  ")) == "hello"
+FAKE_SINGLE_HIT = [
+    {"id": "3429", "name": "San Antonio Spurs", "player_type": "team", "gender": "M", "sport": "basketball"},
+]
 
 
-def test_ask_non_empty_retries_on_empty_input():
-    """Re-prompts when user enters an empty string or only whitespace."""
-    assert _ask_non_empty("Enter: ", ask=ScriptedInput("", "   ", "hello")) == "hello"
+def test_pick_entity_returns_none_on_empty_list():
+    """Returns None when hits list is empty."""
+    result = pick_entity([])
+    assert result is None
+
+
+def test_pick_entity_returns_chosen_when_confirmed():
+    """Returns the chosen hit when user confirms."""
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("1", "Y"))
+
+    assert result["id"] == "3429"
+
+
+def test_pick_entity_returns_none_when_rejected():
+    """Returns None when user rejects the selection."""
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("1", "N"))
+
+    assert result is None
+
+
+def test_pick_entity_skips_selection_prompt_for_single_hit():
+    """Skips the number selection prompt when there is only one result."""
+    ask = ScriptedInput("Y")
+    result = pick_entity(FAKE_SINGLE_HIT, ask=ask)
+
+    assert result["id"] == "3429"
+    assert len(ask.prompts) == 1
+
+
+def test_pick_entity_returns_correct_hit_when_second_option_chosen():
+    """Returns the second hit when user selects option 2."""
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("2", "Y"))
+
+    assert result["id"] == "9999"
+    assert result["name"] == "San Antonio FC"
+
+
+# --- pick_entity input validation tests ---
+
+def test_pick_entity_retries_on_non_numeric_input():
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("abc", "1", "Y"))
+    assert result["id"] == "3429"
+
+
+def test_pick_entity_retries_on_out_of_range_input():
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("0", "99", "1", "Y"))
+    assert result["id"] == "3429"
+
+
+def test_pick_entity_retries_on_invalid_confirmation():
+    result = pick_entity(FAKE_HITS, ask=ScriptedInput("1", "maybe", "Y"))
+    assert result["id"] == "3429"

@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from sports_calendar.tools.get_ids import get_ids
 from sports_calendar.tools.push_queries import push_queries
 from sports_calendar.queries_file import QueryError, add_query, calendar_keys, read_queries
-from sports_calendar.utils import _ask_yes_no
+from sports_calendar.tools.prompts import ask_yes_no
 from sports_calendar.allsports.client import AllSportsClient
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ def add_entities(client: AllSportsClient, queries_path: str, env: Mapping[str, s
         added.append(name)
         keys = sorted(set(keys) | {key})
 
-    if added and _ask_yes_no("Upload queries.json and deploy now? Y/N: ", ask):
+    if added and ask_yes_no("Upload queries.json and deploy now? Y/N: ", ask):
         push(queries_path)
     elif added:
         logger.info("Not deployed. Run `uv run push-queries` when you are ready.")

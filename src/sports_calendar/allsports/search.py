@@ -1,8 +1,7 @@
 import logging
-from collections.abc import Callable
 from sports_calendar.allsports.client import AllSportsClient, AllSportsError, sport_path_prefix
 from sports_calendar.allsports.schemas import SearchResponse
-from sports_calendar.utils import sanitize_for_log, _ask_yes_no
+from sports_calendar.logs import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -35,36 +34,3 @@ def search_entity(client: AllSportsClient, name: str, sport: str) -> list[dict]:
         })
 
     return hits
-
-
-def pick_entity(hits: list[dict], ask: Callable[[str], str] = input) -> dict | None:
-    """Present a list of search hits to the user and return the chosen one, or None if rejected."""
-    if not hits:
-        logger.info("No results found.")
-        return None
-
-    if len(hits) == 1:
-        chosen = hits[0]
-    else:
-        logger.info("Multiple results found:")
-        for i, hit in enumerate(hits):
-            gender = f" ({hit['gender']})" if hit['gender'] else ""
-            player_type = hit['player_type'].capitalize()
-            logger.info(f"  {i + 1}: {hit['name']}{gender} — {player_type}")
-
-        while True:
-            try:
-                index = int(ask(f"Type a number between 1 and {len(hits)}: ")) - 1
-                if 0 <= index < len(hits):
-                    break
-                logger.info(f"Please enter a number between 1 and {len(hits)}.")
-            except ValueError:
-                logger.info("That's not a valid number, please try again.")
-
-        chosen = hits[index]
-
-    if _ask_yes_no(f"Select '{chosen['name']}' ({chosen['player_type']})? Y/N: ", ask):
-        return chosen
-
-    logger.info("Choice discarded.")
-    return None

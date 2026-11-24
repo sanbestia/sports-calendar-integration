@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from sports_calendar.match import Match
 from sports_calendar.allsports.client import AllSportsClient, AllSportsError, sport_path_prefix
 from sports_calendar.allsports.schemas import Event, NextPageResponse, NearResponse, RoundInfo
-from sports_calendar.utils import sanitize_for_log
+from sports_calendar.logs import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
