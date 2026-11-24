@@ -10,7 +10,8 @@ FETCH_THRESHOLDS = {
     "imminent_close":{"hours": 3,  "recheck_hours": 1}, # single match within this many hours
     "season":        {"min_matches": 10, "min_recheck_hours": 24},  # a full season (10+ upcoming matches) waits at least 24h:
                                                          # its changes are rare, and each fetch is several pages
-    "failed":        {"recheck_hours": 1, "max_recheck_hours": 8}  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h
+    "failed":        {"recheck_hours": 1, "max_recheck_hours": 8,  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h;
+                      "alert_streak": 3}                          # from this many failures in a row (about 3h), each run sends a fail ping
 }
 
 # The AllSports free tier allows 100 calls per day, a hard limit. Normal use should not often go above 70 calls

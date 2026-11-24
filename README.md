@@ -25,7 +25,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 - Supports predefined query files for fully automated runs
 - Interactive mode to search for teams and players on the fly
 - Built-in analytics for querying API usage and fetch history via a standalone CLI or Python module
-- Optional email alerts through [healthchecks.io](https://healthchecks.io) when the service stops, hangs or needs a new Google login
+- Optional email alerts through [healthchecks.io](https://healthchecks.io) when the service stops, hangs, needs a new Google login, or keeps failing to fetch a team or player
 
 ---
 
@@ -103,7 +103,8 @@ FETCH_THRESHOLDS = {
     "imminent_close":{"hours": 3,  "recheck_hours": 1}, # single match within this many hours
     "season":        {"min_matches": 10, "min_recheck_hours": 24},  # a full season (10+ upcoming matches) waits at least 24h:
                                                          # its changes are rare, and each fetch is several pages
-    "failed":        {"recheck_hours": 1, "max_recheck_hours": 8}  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h
+    "failed":        {"recheck_hours": 1, "max_recheck_hours": 8,  # last fetch failed: retry after 1h, doubling for each failure in a row, up to 8h;
+                      "alert_streak": 3}                          # from this many failures in a row (about 3h), each run sends a fail ping
 }
 ```
 
@@ -200,6 +201,8 @@ At INFO level you see each fetch, a one-line summary of the matches found, each 
 ### Alerts
 
 The service can report to a free [healthchecks.io](https://healthchecks.io) check. It pings the check at the end of each run, every 15 minutes. When a ping does not come in time, or the service sends a fail ping, healthchecks.io sends you an email. So you hear about runs that hang or fail again and again, a service that needs a new Google login, or a server that is down.
+
+A run that does not crash can still fail at its work, for example with a revoked API key. So when the fetch of a tracked team or player has failed 3 times in a row (`alert_streak` in `FETCH_THRESHOLDS`, about 3 hours with the retry waits), each run sends a fail ping instead of the normal ping, and logs a WARNING with the names. The check stays down until that fetch works again. healthchecks.io sends an email only when the state changes: one when the check goes down, and one when it is back up. The fail ping names no team or player.
 
 1. Create a free account at healthchecks.io and add a check. Set the period to 15 minutes (the timer, `deploy/sports-calendar.timer`) and the grace time to 1 hour, so that a few slow or failed runs do not cause an alert. A Google login failure still alerts at once, with its fail ping.
 2. On the server, add the check's ping URL to `.env` as `HEALTHCHECK_URL`. The next run uses it; to run at once, use `sudo systemctl start sports-calendar`. The check on healthchecks.io then shows the ping.

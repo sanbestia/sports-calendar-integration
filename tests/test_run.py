@@ -6,6 +6,7 @@ from sports_calendar.run import run_cycle, run_once, RunDeps
 from google.auth.exceptions import RefreshError
 from sports_calendar.google_calendar.auth import LoginRequired
 from sports_calendar.heartbeat import Heartbeat
+from sports_calendar.storage.fetch_tracker import FetchTracker
 from tests.fakes import FakeClock, FakePost
 
 
@@ -37,6 +38,7 @@ def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_r
     fetch_tracker = MagicMock()
     fetch_tracker.should_fetch.return_value = should_fetch
     fetch_tracker.hours_until_next_fetch.return_value = 3.0
+    fetch_tracker.fail_streak.return_value = 0
     sync_results = [SyncResult(event_count=r) if isinstance(r, int) else r for r in sync_side_effect]
     return RunDeps(
         client=MagicMock(calls_made=0),
@@ -254,6 +256,31 @@ def test_a_run_pings_the_heartbeat_once_at_its_end():
     run_once(ALCARAZ_QUERIES, deps, version="2d89ca8")
 
     assert [c["url"] for c in post.calls] == [PING_URL]
+
+
+def test_the_heartbeat_fails_while_an_entity_has_failed_three_times_in_a_row():
+    """A run that does not crash is not always a good run: with a revoked API key every fetch fails. From the third
+    failure in a row (about 3 hours, with the retry waits), each run sends a fail ping, also a run with nothing due,
+    so the check stays down until that entity's fetch works again. The ping names no entity: healthchecks.io is an
+    outside service."""
+    post = FakePost()
+    deps = make_deps(fetch_fails=True)
+    deps.fetch_tracker = FetchTracker(":memory:", clock=deps.clock)
+    deps.heartbeat = Heartbeat(PING_URL, post=post)
+
+    for wait_hours in (0, 1, 2):  # the retry waits after the first and the second failure
+        deps.clock.advance(hours=wait_hours)
+        run_once(ALCARAZ_QUERIES, deps, version="2d89ca8")
+    deps.clock.advance(minutes=15)  # the next run: the entity is not due yet
+    run_once(ALCARAZ_QUERIES, deps, version="2d89ca8")
+
+    assert [c["url"] for c in post.calls] == [PING_URL, PING_URL, f"{PING_URL}/fail", f"{PING_URL}/fail"]
+    assert b"Carlos Alcaraz" not in post.calls[-1]["data"]
+
+    deps.fetch_matches.return_value = [make_fake_match(datetime.datetime(2026, 2, 1, 15, 0, tzinfo=datetime.timezone.utc))]
+    deps.clock.advance(hours=4)
+    run_once(ALCARAZ_QUERIES, deps, version="2d89ca8")
+    assert post.calls[-1]["url"] == PING_URL
 
 
 def test_a_run_stopped_by_a_token_error_sends_no_ping():
