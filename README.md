@@ -236,7 +236,7 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 
 `src/sports_calendar/tools/db_stats.py` provides read-only functions for querying both databases (`api_calls.db` and `fetch_log.db`). It needs pandas (the `stats` group). A plain `uv run` installs it with the `dev` group, also on the server, where the next deploy removes it again. It can be used in two ways:
 
-**As a CLI** — call any function by name, with optional positional arguments:
+**As a CLI:** call any function by name, with optional positional arguments:
 ```bash
 uv run db-stats                                         # list all available functions
 uv run db-stats calls_today
@@ -245,7 +245,7 @@ uv run db-stats calls_in_range 2026-01-01 2026-01-31
 uv run db-stats calls_per_entity 7                      # API calls per team over the last 7 days
 ```
 
-**As a module** — import directly in a Python script or notebook:
+**As a module:** import it directly in a Python script or notebook:
 ```python
 from sports_calendar.tools.db_stats import (
     calls_today, remaining_calls_today, calls_on, calls_in_range,

@@ -127,15 +127,13 @@ def run_cycle(queries: dict, deps: RunDeps) -> int:
     for name, entry in queries.items():
 
         if deps.api_tracker.is_limit_reached():
-            logger.warning(
-                f"Daily API limit of {deps.api_tracker.daily_limit} calls reached — "
-                f"skipping remaining fetches until tomorrow"
-                )
+            logger.warning(f"Daily API limit of {deps.api_tracker.daily_limit} calls reached: "
+                           f"skipping the remaining fetches until tomorrow")
             break
 
         if not deps.fetch_tracker.should_fetch(name):
             hours_left = deps.fetch_tracker.hours_until_next_fetch(name)
-            logger.debug(f"Skipping {name} — next fetch in {hours_left:.1f}h")
+            logger.debug(f"Skipping {name}: next fetch in {hours_left:.1f}h")
             continue
 
         _process_entity(name, entry, deps)
