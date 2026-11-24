@@ -18,13 +18,3 @@ FETCH_THRESHOLDS = {
 # ceiling when you change FETCH_THRESHOLDS or add teams (`uv run db-stats avg_daily_calls`).
 MAX_API_CALLS = 100
 API_CALL_CEILING = 70  # the daily summary is a WARNING on a day above this
-
-GRAND_SLAM_TOURNAMENTS = ["US Open", "Wimbledon", "Australian Open", "French Open"]
-
-# Additive duration increments (hours); 'default' applies to all sports, sport-specific values stack on top in Match.define_expected_end_time
-SPORT_DURATIONS = {
-    "default": 2,
-    "tennis": 1,
-    "grand_slam": 2,
-    "esport": 3
-}
