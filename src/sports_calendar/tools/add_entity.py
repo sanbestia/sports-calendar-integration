@@ -7,11 +7,15 @@ import logging
 import os
 from collections.abc import Callable, Mapping
 
+from dotenv import load_dotenv
+
 from sports_calendar.tools.get_ids import get_ids
 from sports_calendar.tools.push_queries import push_queries
 from sports_calendar.queries_file import QueryError, add_query, calendar_keys, read_queries
 from sports_calendar.tools.prompts import ask_yes_no
 from sports_calendar.allsports.client import AllSportsClient
+from sports_calendar.logs import configure_logging
+from sports_calendar.storage.api_calls import APICallTracker
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +67,8 @@ def add_entities(client: AllSportsClient, queries_path: str, env: Mapping[str, s
 
 
 def main() -> None:
-    """Entry point: build the real client from .env and run the flow on ./queries.json."""
-    from dotenv import load_dotenv
-    from sports_calendar.storage.api_calls import APICallTracker
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    """Entry point of `uv run add-entity`: build the real client from .env and run the flow on ./queries.json."""
+    configure_logging()
     load_dotenv()
     client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=APICallTracker())
     add_entities(client, "queries.json", os.environ)
