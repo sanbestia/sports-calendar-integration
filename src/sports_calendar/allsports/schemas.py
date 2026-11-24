@@ -3,7 +3,8 @@ from pydantic import BaseModel, field_validator
 
 # --- Shared models ---
 
-class TeamName(BaseModel):
+class Competitor(BaseModel):
+    """One side of an event: a team, or a player in tennis."""
     id: int | str
     name: str
 
@@ -28,8 +29,8 @@ class EventStatus(BaseModel):
 class Event(BaseModel):
     id: int | str
     startTimestamp: int
-    homeTeam: TeamName
-    awayTeam: TeamName
+    homeTeam: Competitor
+    awayTeam: Competitor
     season: Season
     tournament: Tournament
     roundInfo: RoundInfo | None = None
@@ -51,7 +52,7 @@ class NearResponse(BaseModel):
     @field_validator("nextEvent", mode="before")
     @classmethod
     def normalise_next_event(cls, v):
-        """API sometimes returns a single event dict instead of a list — normalise to list."""
+        """The API sometimes sends one event instead of a list of events: make it a list."""
         if isinstance(v, dict):
             return [v]
         return v
