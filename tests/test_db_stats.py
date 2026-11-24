@@ -539,10 +539,10 @@ def test_stale_teams_returns_empty_on_empty_db(empty_fetch_db):
 # ============================================================
 
 def run_cli(*argv: str) -> int:
-    """Run db_stats.main() with the given arguments and return its exit code (0 when it does not exit)."""
+    """Run the db-stats command line with the given arguments and return its exit code (0 when it does not exit)."""
     from sports_calendar.tools import db_stats
     try:
-        db_stats.main(list(argv))
+        db_stats._run_command(list(argv))
     except SystemExit as e:
         return e.code
     return 0

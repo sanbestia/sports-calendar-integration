@@ -1,8 +1,13 @@
 import logging
 import os
 from collections.abc import Callable
+
+from dotenv import load_dotenv
+
 from sports_calendar.allsports.client import AllSportsClient
 from sports_calendar.allsports.search import search_entity
+from sports_calendar.logs import configure_logging
+from sports_calendar.storage.api_calls import APICallTracker
 from sports_calendar.tools.prompts import ask_non_empty, ask_yes_no
 
 logger = logging.getLogger(__name__)
@@ -69,19 +74,19 @@ def get_ids(client: AllSportsClient, ask: Callable[[str], str] = input) -> dict[
         logger.info("")
 
 
-def main():
-    """Standalone entry point for running the ID lookup tool from the command line."""
-    from dotenv import load_dotenv
-    from sports_calendar.storage.api_calls import APICallTracker
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    load_dotenv()  # same .env as the main script, so RAPIDAPI_KEY need not be exported by hand
-    client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=APICallTracker())
-    results = get_ids(client, ask=input)
-
+def _log_results(results: dict[str, dict[str, str]]) -> None:
+    """Log one line for each chosen entity, with its ID, type and sport."""
     if not results:
         logger.info("No entries were saved.")
         return
-
     logger.info("\n--- Results ---")
     for entity_id, data in results.items():
         logger.info(f"{data['name']} | ID: {entity_id} | Type: {data['player_type']} | Sport: {data['sport']}")
+
+
+def main() -> None:
+    """Entry point of `uv run get-ids`: build the real client from .env, search, and log the chosen IDs."""
+    configure_logging()
+    load_dotenv()  # the same .env as the service, so RAPIDAPI_KEY need not be exported by hand
+    client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=APICallTracker())
+    _log_results(get_ids(client, ask=input))

@@ -10,6 +10,8 @@ import os
 import subprocess
 from collections.abc import Callable, Mapping
 
+from sports_calendar.logs import configure_logging
+
 logger = logging.getLogger(__name__)
 
 REPO = "sanbestia/sports_calendar_integration"
@@ -47,5 +49,6 @@ def _env_with_token(account: str, env: Mapping[str, str], run: Callable[..., sub
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    """Entry point of `uv run push-queries`."""
+    configure_logging()
     push_queries()

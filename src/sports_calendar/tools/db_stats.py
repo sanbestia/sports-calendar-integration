@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 
 from sports_calendar.config import MAX_API_CALLS
+from sports_calendar.logs import configure_logging
 from sports_calendar.storage.api_calls import DB_FILE as API_CALLS_DB
 from sports_calendar.storage.fetch_tracker import DB_FILE as FETCH_LOG_DB, FetchTracker
 
@@ -375,9 +376,8 @@ def _log_result(result: Any) -> None:
         logger.info(result)
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Entry point of `uv run db-stats`: call a public function of this module by name, with its parameters."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+def _run_command(argv: list[str] | None = None) -> None:
+    """Call a public function of this module by name, with its parameters from argv (sys.argv[1:] by default)."""
     parser = argparse.ArgumentParser(prog="db-stats", add_help=True)
     parser.add_argument("function", nargs="?", metavar="FUNCTION")
     parser.add_argument("params", nargs="*", metavar="PARAM")
@@ -393,3 +393,9 @@ def main(argv: list[str] | None = None) -> None:
             logger.error(line)
         sys.exit(1)
     _log_result(result)
+
+
+def main() -> None:
+    """Entry point of `uv run db-stats`. Tests call _run_command, because configure_logging replaces the root handlers."""
+    configure_logging()
+    _run_command()
