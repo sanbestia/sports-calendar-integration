@@ -1,17 +1,21 @@
-import os
-import sys
+"""Read-only queries on the service's databases, for a person (`uv run db-stats <function> [params...]`) or for code."""
+import argparse
 import inspect
 import logging
 import sqlite3
-from collections.abc import Iterator
+import sys
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 
-from sports_calendar.config import MAX_API_CALLS, FETCH_THRESHOLDS
+from sports_calendar.config import MAX_API_CALLS
 from sports_calendar.storage.api_calls import DB_FILE as API_CALLS_DB
-from sports_calendar.storage.fetch_tracker import DB_FILE as FETCH_LOG_DB
+from sports_calendar.storage.fetch_tracker import DB_FILE as FETCH_LOG_DB, FetchTracker
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -36,16 +40,22 @@ def _fmt_float(f: float) -> float:
     return round(f, 2)
 
 
+def _formatted(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of a fetch_log DataFrame for reading: the times as text, the hours rounded to 2 decimals."""
+    result = df.copy()
+    for column in ("last_fetched", "next_match"):
+        result[column] = result[column].map(_fmt_datetime)
+    for column in ("hours_since_fetch", "hours_until_match"):
+        if column in result:
+            result[column] = result[column].map(_fmt_float)
+    return result
+
+
 # --- API calls ---
 
 def calls_today(db_path: str = API_CALLS_DB) -> int:
     """Return the number of API calls made today."""
-    with _connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT count FROM api_calls WHERE date = ?",
-            (str(date.today()),)
-        ).fetchone()
-    return row[0] if row else 0
+    return calls_on(date.today(), db_path)
 
 
 def calls_on(day: date, db_path: str = API_CALLS_DB) -> int:
@@ -139,7 +149,7 @@ def busiest_days(n: int = 5, db_path: str = API_CALLS_DB, limit: int = MAX_API_C
 def calls_per_period(freq: str = "W", db_path: str = API_CALLS_DB, limit: int = MAX_API_CALLS) -> pd.DataFrame:
     """Return API call totals grouped by time period.
 
-    freq: any pandas offset alias — e.g. 'W' (week), 'ME' (month end), 'QE' (quarter end).
+    freq: any pandas offset alias, for example 'W' (week), 'ME' (month end) or 'QE' (quarter end).
     Columns: date (period start), total_calls, days_recorded, days_at_limit.
     """
     df = all_calls_df(db_path, limit=limit)
@@ -192,11 +202,7 @@ def all_fetches_df(db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFra
         )
     df["last_fetched"] = pd.to_datetime(df["last_fetched"], utc=True)
     df["next_match"] = pd.to_datetime(df["next_match"], utc=True, errors="coerce")
-    if raw:
-        return df
-    df["last_fetched"] = df["last_fetched"].map(_fmt_datetime)
-    df["next_match"] = df["next_match"].map(_fmt_datetime)
-    return df
+    return df if raw else _formatted(df)
 
 
 def fetch_gap_df(db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFrame:
@@ -212,22 +218,15 @@ def fetch_gap_df(db_path: str = FETCH_LOG_DB, raw: bool = False) -> pd.DataFrame
     now = pd.Timestamp.now(tz="UTC")
     df["hours_since_fetch"] = (now - df["last_fetched"]).dt.total_seconds() / 3600
     df["hours_until_match"] = (df["next_match"] - now).dt.total_seconds() / 3600
-    if raw:
-        return df
-    df["last_fetched"] = df["last_fetched"].map(_fmt_datetime)
-    df["next_match"] = df["next_match"].map(_fmt_datetime)
-    df["hours_since_fetch"] = df["hours_since_fetch"].map(_fmt_float)
-    df["hours_until_match"] = df["hours_until_match"].map(_fmt_float)
-    return df
+    return df if raw else _formatted(df)
 
 
 def teams_due_now(db_path: str = FETCH_LOG_DB) -> list[str]:
     """Return team names that the scheduler would fetch right now.
 
-    Reuses FetchTracker's threshold logic so results match actual scheduler behaviour.
+    It asks a read-only FetchTracker, so the result follows the scheduler's own rules and the database is not changed.
     """
-    from sports_calendar.storage.fetch_tracker import FetchTracker
-    tracker = FetchTracker(db_path=db_path)
+    tracker = FetchTracker(db_path=db_path, read_only=True)
     df = all_fetches_df(db_path, raw=True)  # raw=True; team_name column is unaffected by formatting
     return [name for name in df["team_name"] if tracker.should_fetch(name)]
 
@@ -248,20 +247,10 @@ def stale_teams(hours: float = 48, db_path: str = FETCH_LOG_DB, raw: bool = Fals
     """
     df = fetch_gap_df(db_path, raw=True)  # raw=True so numeric comparison on hours_since_fetch works
     result = df[df["hours_since_fetch"] > hours].sort_values("hours_since_fetch", ascending=False).reset_index(drop=True)
-    if raw:
-        return result
-    result = result.copy()
-    result["last_fetched"] = result["last_fetched"].map(_fmt_datetime)
-    result["next_match"] = result["next_match"].map(_fmt_datetime)
-    result["hours_since_fetch"] = result["hours_since_fetch"].map(_fmt_float)
-    result["hours_until_match"] = result["hours_until_match"].map(_fmt_float)
-    return result
+    return result if raw else _formatted(result)
 
 
-
-# ============================================================
-# fetch_history (one row per fetch, in fetch_log.db)
-# ============================================================
+# --- fetch_history (one row per fetch, in fetch_log.db) ---
 
 def _history_df(days: int, db_path: str, columns: str) -> pd.DataFrame:
     """Rows of fetch_history from the last `days` days (today included); empty if the table does not exist yet."""
@@ -297,102 +286,110 @@ def recent_failures(days: int = 7, db_path: str = FETCH_LOG_DB) -> pd.DataFrame:
     df = df[df["outcome"] == "failed"][["fetched_at", "entity", "error"]]
     return df.iloc[::-1].reset_index(drop=True)
 
-def main(argv: list[str] | None = None) -> None:
-    """CLI entry point: call any public function in this module by name (argv defaults to sys.argv[1:])."""
-    import argparse
 
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    _log = logging.getLogger(__name__)
+# --- command line ---
 
-    # Collect all public functions defined in this file (exclude imported symbols)
-    _this_file = os.path.abspath(__file__)
-    _available_fns: dict = {}
-    for _name, _obj in inspect.getmembers(sys.modules[__name__], inspect.isfunction):
-        if _name.startswith("_") or _name == "main":
-            continue
-        try:
-            if inspect.getfile(_obj) == _this_file:
-                _available_fns[_name] = _obj
-        except TypeError:
-            pass
+class _CommandError(Exception):
+    """A command that cannot run or that failed. Each argument is one line of the error message."""
 
-    _parser = argparse.ArgumentParser(prog="db-stats", add_help=True)
-    _parser.add_argument("function", nargs="?", metavar="FUNCTION")
-    _parser.add_argument("params", nargs="*", metavar="PARAM")
-    _args = _parser.parse_args(argv)
 
-    if not _args.function:
-        _log.warning("No function specified.")
-        _log.warning("Usage: uv run db-stats <function> [params...]")
-        _log.warning("")
-        _log.warning("Available functions:")
-        for _fn_name, _fn in sorted(_available_fns.items()):
-            _signature = inspect.signature(_fn)
-            _first_doc_line = (_fn.__doc__ or "").split("\n")[0].strip()
-            _log.warning(f" * {_fn_name} {_signature}")
-            if _first_doc_line:
-                _log.warning(f"     {_first_doc_line}")
-                _log.warning("  ------")
-        sys.exit(0)
+def _public_functions() -> dict[str, Callable]:
+    """The functions that this module defines for the command line: not private, not main, and not imported."""
+    module = sys.modules[__name__]
+    return {name: function for name, function in inspect.getmembers(module, inspect.isfunction)
+            if not name.startswith("_") and name != "main" and function.__module__ == __name__}
 
-    if _args.function not in _available_fns:
-        _log.error(f"Unknown function '{_args.function}'. Run without arguments to see available functions.")
-        sys.exit(1)
 
-    _fn = _available_fns[_args.function]
-    _fn_params = list(inspect.signature(_fn).parameters.values())
+def _log_usage(functions: dict[str, Callable]) -> None:
+    """Log the usage line, then each function with its signature and the first line of its docstring."""
+    logger.info("No function specified.")
+    logger.info("Usage: uv run db-stats <function> [params...]")
+    logger.info("")
+    logger.info("Available functions:")
+    for name, function in sorted(functions.items()):
+        logger.info(f" * {name} {inspect.signature(function)}")
+        first_doc_line = (function.__doc__ or "").split("\n")[0].strip()
+        if first_doc_line:
+            logger.info(f"     {first_doc_line}")
+            logger.info("  ------")
 
-    # Parameters without a default value must be supplied on the command line
-    _required_params = [(p.name, p) for p in _fn_params if p.default is inspect.Parameter.empty]
 
-    if len(_args.params) < len(_required_params):
-        _missing_params = [name for name, _ in _required_params[len(_args.params):]]
-        _log.error(f"'{_args.function}' requires: {', '.join(n for n, _ in _required_params)}")
-        _log.error(f"Missing: {', '.join(_missing_params)}")
-        _log.error(f"Usage: uv run db-stats {_args.function} {' '.join(f'<{n}>' for n, _ in _required_params)}")
-        sys.exit(1)
+def _as_bool(text: str) -> bool:
+    """Return the boolean that the command-line text names (true/1/yes or false/0/no)."""
+    if text.lower() in ("true", "1", "yes"):
+        return True
+    if text.lower() in ("false", "0", "no"):
+        return False
+    raise ValueError(f"expected true/false, got '{text}'")
 
-    # Convert each CLI string to the type declared in the parameter's annotation
-    _coerced_args = []
-    for _raw_value, _param in zip(_args.params, _fn_params):
-        _annotation = _param.annotation
-        try:
-            if _annotation is date:
-                _coerced_args.append(date.fromisoformat(_raw_value))
-            elif _annotation is int:
-                _coerced_args.append(int(_raw_value))
-            elif _annotation is float:
-                _coerced_args.append(float(_raw_value))
-            elif _annotation is bool:
-                if _raw_value.lower() in ("true", "1", "yes"):
-                    _coerced_args.append(True)
-                elif _raw_value.lower() in ("false", "0", "no"):
-                    _coerced_args.append(False)
-                else:
-                    _log.error(f"Bad value for '{_param.name}': expected true/false, got '{_raw_value}'")
-                    sys.exit(1)
-            else:
-                _coerced_args.append(_raw_value)  # str or unannotated — pass through as-is
-        except (ValueError, TypeError) as _e:
-            _log.error(f"Bad value for '{_param.name}': {_e}")
-            sys.exit(1)
 
+_CONVERTERS: dict[Any, Callable[[str], Any]] = {date: date.fromisoformat, int: int, float: float, bool: _as_bool}
+
+
+def _converted(text: str, parameter: inspect.Parameter) -> Any:
+    """Return the command-line text as the type that the parameter declares; text for str or no annotation."""
+    converter = _CONVERTERS.get(parameter.annotation)
+    if converter is None:
+        return text
     try:
-        _result = _fn(*_coerced_args)
-    except Exception as _e:
-        _log.error(f"Error running '{_args.function}': {_e}")
-        sys.exit(1)
+        return converter(text)
+    except (ValueError, TypeError) as e:
+        raise _CommandError(f"Bad value for '{parameter.name}': {e}") from e
 
-    # Format output based on the return type
-    if isinstance(_result, pd.DataFrame):
-        _log.info(_result.to_string(index=False) if not _result.empty else "(no data)")
-    elif isinstance(_result, dict):
-        for _key, _value in _result.items():
-            _log.info(f"  {_key}: {_value}")
-    elif isinstance(_result, list):
-        for _item in _result:
-            _log.info(f"  {_item}")
-        if not _result:
-            _log.info("(none)")
+
+def _arguments(name: str, function: Callable, texts: list[str]) -> list:
+    """Return the command-line values converted to the types of the function's parameters, in order."""
+    parameters = list(inspect.signature(function).parameters.values())
+    required = [p.name for p in parameters if p.default is inspect.Parameter.empty]
+    if len(texts) < len(required):
+        raise _CommandError(f"'{name}' requires: {', '.join(required)}",
+                            f"Missing: {', '.join(required[len(texts):])}",
+                            f"Usage: uv run db-stats {name} {' '.join(f'<{n}>' for n in required)}")
+    return [_converted(text, parameter) for text, parameter in zip(texts, parameters)]
+
+
+def _call(functions: dict[str, Callable], name: str, texts: list[str]) -> Any:
+    """Call the named function with the command-line values; raise _CommandError when it cannot run or fails."""
+    if name not in functions:
+        raise _CommandError(f"Unknown function '{name}'. Run without arguments to see available functions.")
+    arguments = _arguments(name, functions[name], texts)
+    try:
+        return functions[name](*arguments)
+    except Exception as e:
+        raise _CommandError(f"Error running '{name}': {e}") from e
+
+
+def _log_result(result: Any) -> None:
+    """Log a result: a DataFrame as a table, a dict with one key per line, a list with one item per line, else as it is."""
+    if isinstance(result, pd.DataFrame):
+        logger.info(result.to_string(index=False) if not result.empty else "(no data)")
+    elif isinstance(result, dict):
+        for key, value in result.items():
+            logger.info(f"  {key}: {value}")
+    elif isinstance(result, list):
+        for item in result:
+            logger.info(f"  {item}")
+        if not result:
+            logger.info("(none)")
     else:
-        _log.info(_result)
+        logger.info(result)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Entry point of `uv run db-stats`: call a public function of this module by name, with its parameters."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    parser = argparse.ArgumentParser(prog="db-stats", add_help=True)
+    parser.add_argument("function", nargs="?", metavar="FUNCTION")
+    parser.add_argument("params", nargs="*", metavar="PARAM")
+    args = parser.parse_args(argv)
+    functions = _public_functions()
+    if not args.function:
+        _log_usage(functions)
+        sys.exit(0)
+    try:
+        result = _call(functions, args.function, args.params)
+    except _CommandError as e:
+        for line in e.args:
+            logger.error(line)
+        sys.exit(1)
+    _log_result(result)
