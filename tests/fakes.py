@@ -45,14 +45,16 @@ class ScriptedInput:
 class FakeResponse:
     """The part of requests.Response that the client reads."""
 
-    def __init__(self, text: str):
+    def __init__(self, text: str, status_code: int = 200):
         self.text = text
+        self.status_code = status_code
 
 
 class FakeSession:
     """Stands in for requests.Session: returns queued replies in order and records each request.
 
     A reply is a dict (sent as its JSON), a str (sent as the raw body; "" is an empty body),
+    a FakeResponse (sent as it is, for a status other than 200),
     or an exception instance or class (raised, as a failed request would).
     """
 
@@ -71,6 +73,8 @@ class FakeSession:
         reply = self._replies.pop(0)
         if isinstance(reply, BaseException) or (isinstance(reply, type) and issubclass(reply, BaseException)):
             raise reply
+        if isinstance(reply, FakeResponse):
+            return reply
         return FakeResponse(reply if isinstance(reply, str) else json.dumps(reply))
 
 
