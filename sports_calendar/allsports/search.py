@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from sports_calendar.allsports.client import AllSportsClient, AllSportsError
+from sports_calendar.allsports.client import AllSportsClient, AllSportsError, sport_path_prefix
 from sports_calendar.allsports.schemas import SearchResponse
 from sports_calendar.utils import sanitize_for_log, _ask_yes_no
 
@@ -9,9 +9,10 @@ logger = logging.getLogger(__name__)
 
 def search_entity(client: AllSportsClient, name: str, sport: str) -> list[dict]:
     """Search the AllSports API for a player or team by name and sport.
-    Returns a list of result dicts, each containing 'id', 'name', 'type', 'gender', and 'sport'."""
-    # football is the API default and has no sport prefix in the path; all other sports are prefixed
-    path = f"{'' if sport.lower() == 'football' else sport.lower() + '/'}search/{name.lower()}"
+    Returns a list of result dicts, each containing 'id', 'name', 'player_type', 'gender', and 'sport'
+    (the sport in lowercase, the form that the API paths use)."""
+    sport_slug = sport.lower()
+    path = f"{sport_path_prefix(sport_slug)}search/{name.lower()}"
 
     try:
         parsed = client.get(path, SearchResponse)
@@ -30,7 +31,7 @@ def search_entity(client: AllSportsClient, name: str, sport: str) -> list[dict]:
             "name": entity.name,
             "player_type": "player" if entity.playerTeamInfo is not None else "team",  # API sets playerTeamInfo to a non-None value for players; None means it's a team
             "gender": entity.gender,
-            "sport": sport
+            "sport": sport_slug
         })
 
     return hits
