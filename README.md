@@ -48,7 +48,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 ```bash
     uv sync
 ```
-   This also installs the `dev` group: pytest, and pandas for `sports_calendar/tools/db_stats.py` (the `stats` group, which `dev` includes). The service itself needs neither.
+   This also installs the `dev` group: pytest, and pandas for `src/sports_calendar/tools/db_stats.py` (the `stats` group, which `dev` includes). The service itself needs neither.
 
 3. Set up your environment variables (see [Configuration](#configuration))
 
@@ -90,7 +90,7 @@ You may add as many Google Calendar IDs as you wish.
 
 > **Note:** To find your Google Calendar ID, go to Google Calendar → Settings → select a calendar → scroll down to "Integrate calendar".
 
-You can adjust the fetch thresholds in `sports_calendar/config.py`. By default they are:
+You can adjust the fetch thresholds in `src/sports_calendar/config.py`. By default they are:
 ```python
 FETCH_THRESHOLDS = {
     "far":           {"days": 7,  "recheck_hours": 48},  # next match is more than 7 days away
@@ -234,7 +234,7 @@ The tests need no secrets. Code gets its collaborators passed in (the AllSports 
 
 ## Database Analytics
 
-`sports_calendar/tools/db_stats.py` provides read-only functions for querying both databases (`api_calls.db` and `fetch_log.db`). It needs pandas (the `stats` group). A plain `uv run` installs it with the `dev` group, also on the server, where the next deploy removes it again. It can be used in two ways:
+`src/sports_calendar/tools/db_stats.py` provides read-only functions for querying both databases (`api_calls.db` and `fetch_log.db`). It needs pandas (the `stats` group). A plain `uv run` installs it with the `dev` group, also on the server, where the next deploy removes it again. It can be used in two ways:
 
 **As a CLI** — call any function by name, with optional positional arguments:
 ```bash

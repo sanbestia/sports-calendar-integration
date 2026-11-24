@@ -13,7 +13,7 @@ class FetchHistory(SqliteStore):
     """One row per fetch: when, which entity, what came back, how many API calls it used and what it changed.
 
     It answers questions such as "calls per entity per day" or "failures this month" with a query
-    (see sports_calendar/tools/db_stats.py) instead of parsing log text, and it survives restarts and log rotation.
+    (see src/sports_calendar/tools/db_stats.py) instead of parsing log text, and it survives restarts and log rotation.
     """
 
     def __init__(self, db_path: str = DB_FILE, clock: Clock | None = None):

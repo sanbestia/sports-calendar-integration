@@ -21,10 +21,16 @@ dev = [
     "pytest>=8.0.0",
     {include-group = "stats"},
 ]
-stats = [  # sports_calendar/tools/db_stats.py
+stats = [  # src/sports_calendar/tools/db_stats.py
     "pandas>=3.0.1",
 ]
 
+[build-system]
+requires = ["uv_build>=0.10.6,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "sports_calendar"  # the project name would give sports_calendar_integration
+
 [tool.pytest.ini_options]
-pythonpath = ["."]
 log_level = "INFO"  # the app logs its normal flow at INFO; let caplog see it
