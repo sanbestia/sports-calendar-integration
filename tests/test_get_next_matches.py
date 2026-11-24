@@ -217,6 +217,15 @@ def test_includes_notstarted_matches():
     assert len(result) == 1
 
 
+def test_includes_matches_with_no_status():
+    """The status is optional in the API response; only an event marked 'canceled' is skipped."""
+    event_with_no_status = {key: value for key, value in FAKE_EVENT.items() if key != "status"}
+    session = FakeSession({"events": [event_with_no_status], "hasNextPage": False})
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
+
+    assert [match.game_id for match in result] == ["1"]
+
+
 def test_near_endpoint_returns_none_on_invalid_structure(caplog):
     """Returns None and logs an error when the 'near' event fails validation."""
     session = FakeSession(

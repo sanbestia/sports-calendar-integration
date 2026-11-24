@@ -46,7 +46,7 @@ class NextPageResponse(BaseModel):
 
 class NearResponse(BaseModel):
     """Response from /matches/near or /events/near"""
-    nextEvent: list[Event] | Event | None = None
+    nextEvent: list[Event] | None = None
 
     @field_validator("nextEvent", mode="before")
     @classmethod
