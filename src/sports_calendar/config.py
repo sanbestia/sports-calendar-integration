@@ -15,6 +15,6 @@ FETCH_THRESHOLDS = {
 
 # The AllSports free tier allows 100 calls per day, a hard limit. Normal use should not often go above 70 calls
 # per day (API_CALL_CEILING), which leaves headroom for outages and retries. There is no floor: fewer calls are fine. Check the
-# ceiling when you change FETCH_THRESHOLDS or add teams (`uv run db-stats avg_daily_calls`).
+# ceiling when you change FETCH_THRESHOLDS or add entities (`uv run db-stats avg_daily_calls`).
 MAX_API_CALLS = 100
 API_CALL_CEILING = 70  # the daily summary is a WARNING on a day above this

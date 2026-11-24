@@ -47,8 +47,8 @@ def _fetch(deps: RunDeps, name: str, entry: dict) -> list | None:
     """Fetch one entity's upcoming matches; None when the fetch failed (the fetch logs why)."""
     return deps.fetch_matches(
         deps.client,
-        team_id=entry["id"],
-        team_name=name,
+        entity_id=entry["id"],
+        entity_name=name,
         sport=entry["sport"],
         player_type=entry["player_type"],
         time_zone=str(deps.tz)
@@ -62,7 +62,7 @@ def _sync(deps: RunDeps, entry: dict, matches: list) -> SyncResult:
         calendar_id=entry["calendar"],
         game_list=matches,
         time_zone=str(deps.tz),
-        team_id=entry["id"],
+        entity_id=entry["id"],
         clock=deps.clock
     )
 

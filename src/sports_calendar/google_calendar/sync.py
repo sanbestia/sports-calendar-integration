@@ -85,7 +85,7 @@ def _build_event_body(game: Match, time_zone: str, updated_at: datetime) -> dict
 
 @dataclass(frozen=True)
 class SyncResult:
-    """What one update_events call did: the team's events left in the calendar, and the changes it made."""
+    """What one update_events call did: the entity's events left in the calendar, and the changes it made."""
     event_count: int
     created: int = 0
     updated: int = 0
@@ -123,14 +123,14 @@ def _needs_update(event: dict, game: Match) -> bool:
     return _stored_properties(event) != _private_properties(game) or event.get("summary") != _build_summary(game)
 
 
-def _is_orphan(event: dict, team_id: str, game_ids: set[str], now: datetime) -> bool:
-    """True for a future event of this team whose match is no longer in the list (cancelled, or its API id changed).
+def _is_orphan(event: dict, entity_id: str, game_ids: set[str], now: datetime) -> bool:
+    """True for a future event of this entity whose match is no longer in the list (cancelled, or its API id changed).
 
-    An event of another team that shares the calendar is never an orphan. Neither is an event that has started:
+    An event of another entity that shares the calendar is never an orphan. Neither is an event that has started:
     the sports API returns only upcoming games, so a past game is missing from the list even when it was played.
     """
     stored = _stored_properties(event)
-    if team_id not in (stored.get("home_team_id"), stored.get("away_team_id")):
+    if entity_id not in (stored.get("home_team_id"), stored.get("away_team_id")):
         return False
     game_id = stored.get("game_id")
     if not game_id or game_id in game_ids:
@@ -220,12 +220,12 @@ def _create_or_update(writer: _CalendarWriter, game_list: list[Match], existing_
     return created, updated
 
 
-def _delete_orphans(writer: _CalendarWriter, events: list[dict], team_id: str, game_ids: set[str], now: datetime) -> int:
-    """Delete this team's orphaned events (see _is_orphan) and return how many were deleted."""
-    return sum(1 for event in events if _is_orphan(event, team_id, game_ids, now) and writer.delete(event))
+def _delete_orphans(writer: _CalendarWriter, events: list[dict], entity_id: str, game_ids: set[str], now: datetime) -> int:
+    """Delete this entity's orphaned events (see _is_orphan) and return how many were deleted."""
+    return sum(1 for event in events if _is_orphan(event, entity_id, game_ids, now) and writer.delete(event))
 
 
-def update_events(service: Resource, calendar_id: str, game_list: list[Match], time_zone: str, team_id: str,
+def update_events(service: Resource, calendar_id: str, game_list: list[Match], time_zone: str, entity_id: str,
                   clock: Clock | None = None) -> SyncResult:
     """Sync a list of matches to Google Calendar: create new events, update changed ones, and delete orphans."""
     clock = clock or Clock()
@@ -235,5 +235,5 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
     events = writer.list_events(_lookback_start(now))
     created, updated = _create_or_update(writer, game_list, _index_by_game_id(events))
     game_ids = {str(game.game_id) for game in game_list}
-    deleted = _delete_orphans(writer, events, team_id, game_ids, now)
+    deleted = _delete_orphans(writer, events, entity_id, game_ids, now)
     return SyncResult(_count_kept(events, game_ids) + created, created=created, updated=updated, deleted=deleted)

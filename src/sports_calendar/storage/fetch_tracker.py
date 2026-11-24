@@ -88,27 +88,27 @@ class FetchTracker(SqliteStore):
                 if column not in columns:
                     conn.execute(f"ALTER TABLE fetch_log ADD COLUMN {column} {definition}")
 
-    def should_fetch(self, team_name: str) -> bool:
-        """Return True if this team is due for a fetch."""
-        return self.hours_until_next_fetch(team_name) == 0.0
+    def should_fetch(self, entity_name: str) -> bool:
+        """Return True if this entity is due for a fetch."""
+        return self.hours_until_next_fetch(entity_name) == 0.0
 
-    def hours_until_next_fetch(self, team_name: str) -> float:
-        """Return how many hours until this team is due for a fetch (0.0 if due now or no record)."""
+    def hours_until_next_fetch(self, entity_name: str) -> float:
+        """Return how many hours until this entity is due for a fetch (0.0 if due now or no record)."""
         with self._connect() as conn:
-            state = self._read_state(conn, team_name)
-        if state is None:  # no entry for this team yet; first fetch is always allowed
+            state = self._read_state(conn, entity_name)
+        if state is None:  # no entry for this entity yet; first fetch is always allowed
             return 0.0
         return self._hours_left(state, self._clock.now())
 
     @staticmethod
-    def _read_state(conn: sqlite3.Connection, team_name: str) -> FetchState | None:
-        """Return the stored state of this team, or None when it has no row yet."""
+    def _read_state(conn: sqlite3.Connection, entity_name: str) -> FetchState | None:
+        """Return the stored state of this entity, or None when it has no row yet."""
         cursor = conn.cursor()
         cursor.row_factory = sqlite3.Row  # on this cursor only: other reads on the shared :memory: connection expect tuples
         row = cursor.execute("""
             SELECT last_fetched, next_match, match_count, last_failed, fail_streak, empty_since, empty_wait_hours
             FROM fetch_log WHERE team_name = ?
-        """, (team_name,)).fetchone()
+        """, (entity_name,)).fetchone()
         return FetchState.from_row(row) if row else None
 
     def _hours_left(self, state: FetchState, now: datetime) -> float:
@@ -168,8 +168,8 @@ class FetchTracker(SqliteStore):
         else:
             return FETCH_THRESHOLDS["near"]["recheck_hours"]
 
-    def record_fetch(self, team_name: str, next_match: datetime | None, match_count: int, player_type: str = "team") -> None:
-        """Record a successful fetch for this team, along with their next match time.
+    def record_fetch(self, entity_name: str, next_match: datetime | None, match_count: int, player_type: str = "team") -> None:
+        """Record a successful fetch for this entity, along with its next match time.
 
         An empty result (no next match) also stores how long to wait before the next check: the 'unknown'
         interval during the first grace_days of empty results, then double the previous wait for each
@@ -179,7 +179,7 @@ class FetchTracker(SqliteStore):
         empty_since, empty_wait_hours = None, None
         with self._connect() as conn:  # one transaction for the read of the previous empty wait and the write
             if next_match is None:
-                empty_since, empty_wait_hours = self._next_empty_wait(self._read_state(conn, team_name), now, player_type)
+                empty_since, empty_wait_hours = self._next_empty_wait(self._read_state(conn, entity_name), now, player_type)
             conn.execute("""
                 INSERT INTO fetch_log (team_name, last_fetched, next_match, match_count, last_failed, fail_streak,
                                        empty_since, empty_wait_hours)
@@ -193,7 +193,7 @@ class FetchTracker(SqliteStore):
                     empty_since = excluded.empty_since,
                     empty_wait_hours = excluded.empty_wait_hours
             """, (
-                team_name,
+                entity_name,
                 now.isoformat(),
                 _to_iso(next_match),
                 match_count,
@@ -215,10 +215,10 @@ class FetchTracker(SqliteStore):
             wait = min(previous_wait * 2, settings["max_recheck_hours"][player_type])
         return empty_since, wait
 
-    def record_failure(self, team_name: str) -> None:
-        """Record that the latest fetch or sync for this team failed, so it is retried after the failure wait.
+    def record_failure(self, entity_name: str) -> None:
+        """Record that the latest fetch or sync for this entity failed, so it is retried after the failure wait.
 
-        The last successful fetch's data (last_fetched, next_match, match_count) is kept. A team with no
+        The last successful fetch's data (last_fetched, next_match, match_count) is kept. An entity with no
         record yet gets one, with last_fetched set to now because that column cannot be empty.
         """
         now = self._clock.now().isoformat()
@@ -229,4 +229,4 @@ class FetchTracker(SqliteStore):
                 ON CONFLICT(team_name) DO UPDATE SET
                     last_failed = excluded.last_failed,
                     fail_streak = fail_streak + 1
-            """, (team_name, now, now))
+            """, (entity_name, now, now))

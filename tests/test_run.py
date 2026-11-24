@@ -57,7 +57,7 @@ def test_fetches_with_client_and_entity_fields():
     run_cycle(ALCARAZ_QUERIES, deps)
 
     deps.fetch_matches.assert_called_once_with(
-        deps.client, team_id="275923", team_name="Carlos Alcaraz", sport="tennis", player_type="player", time_zone="UTC"
+        deps.client, entity_id="275923", entity_name="Carlos Alcaraz", sport="tennis", player_type="player", time_zone="UTC"
     )
 
 
@@ -68,7 +68,7 @@ def test_syncs_to_entity_calendar_with_the_runs_service_and_clock():
 
     kwargs = deps.sync_events.call_args.kwargs
     assert kwargs["calendar_id"] == "tennis_calendar_id"
-    assert kwargs["team_id"] == "275923"
+    assert kwargs["entity_id"] == "275923"
     assert kwargs["service"] is deps.calendar_service
     assert kwargs["clock"] is deps.clock
 

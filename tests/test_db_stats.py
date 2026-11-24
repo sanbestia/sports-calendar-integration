@@ -26,9 +26,9 @@ from sports_calendar.tools.db_stats import (
     fetch_gap_df,
     pct_days_at_max,
     remaining_calls_today,
-    stale_teams,
-    teams_due_now,
-    teams_with_no_upcoming_match,
+    stale_entities,
+    entities_due_now,
+    entities_with_no_upcoming_match,
 )
 
 
@@ -245,7 +245,7 @@ def test_all_calls_df_returns_empty_dataframe_on_empty_db(empty_api_db):
 
 def test_all_fetches_df_has_correct_columns(fetch_db):
     df = all_fetches_df(fetch_db)
-    assert list(df.columns) == ["team_name", "last_fetched", "next_match", "match_count"]
+    assert list(df.columns) == ["entity", "last_fetched", "next_match", "match_count"]
 
 
 def test_all_fetches_df_has_correct_row_count(fetch_db):
@@ -261,7 +261,7 @@ def test_all_fetches_df_parses_timestamps_as_utc(fetch_db):
 
 def test_all_fetches_df_null_next_match_is_nat(fetch_db):
     df = all_fetches_df(fetch_db, raw=True)
-    fever_row = df[df["team_name"] == "Indiana Fever"].iloc[0]
+    fever_row = df[df["entity"] == "Indiana Fever"].iloc[0]
     assert pd.isna(fever_row["next_match"])
 
 
@@ -279,7 +279,7 @@ def test_all_fetches_df_formats_datetimes_as_strings_by_default(fetch_db):
 
 def test_all_fetches_df_datetime_format_by_default(fetch_db):
     df = all_fetches_df(fetch_db)
-    alcaraz = df[df["team_name"] == "Carlos Alcaraz"].iloc[0]
+    alcaraz = df[df["entity"] == "Carlos Alcaraz"].iloc[0]
     # format: "DD-MM-YYYY HH:MM:SS +00:00"
     import re
     assert re.match(r"\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2} \+00:00", alcaraz["last_fetched"])
@@ -288,7 +288,7 @@ def test_all_fetches_df_datetime_format_by_default(fetch_db):
 
 def test_all_fetches_df_null_next_match_is_empty_string_by_default(fetch_db):
     df = all_fetches_df(fetch_db)
-    fever_row = df[df["team_name"] == "Indiana Fever"].iloc[0]
+    fever_row = df[df["entity"] == "Indiana Fever"].iloc[0]
     assert fever_row["next_match"] == ""
 
 
@@ -307,16 +307,16 @@ def test_fetch_gap_df_hours_since_fetch_is_positive(fetch_db):
 
 def test_fetch_gap_df_hours_since_fetch_is_approximate(fetch_db):
     """hours_since_fetch should be close to the seeded values (5h and 10h)."""
-    df = fetch_gap_df(fetch_db).sort_values("team_name").reset_index(drop=True)
-    alcaraz = df[df["team_name"] == "Carlos Alcaraz"].iloc[0]
-    fever = df[df["team_name"] == "Indiana Fever"].iloc[0]
+    df = fetch_gap_df(fetch_db).sort_values("entity").reset_index(drop=True)
+    alcaraz = df[df["entity"] == "Carlos Alcaraz"].iloc[0]
+    fever = df[df["entity"] == "Indiana Fever"].iloc[0]
     assert alcaraz["hours_since_fetch"] == pytest.approx(5.0, abs=0.1)
     assert fever["hours_since_fetch"] == pytest.approx(10.0, abs=0.1)
 
 
 def test_fetch_gap_df_hours_until_match_is_nan_when_no_next_match(fetch_db):
     df = fetch_gap_df(fetch_db)
-    fever_row = df[df["team_name"] == "Indiana Fever"].iloc[0]
+    fever_row = df[df["entity"] == "Indiana Fever"].iloc[0]
     assert pd.isna(fever_row["hours_until_match"])
 
 
@@ -436,7 +436,7 @@ def test_api_budget_forecast_returns_zero_rate_on_empty_db(empty_api_db):
     assert result["rate_per_hour"] == 0.0
 
 
-# --- teams_due_now ---
+# --- entities_due_now ---
 
 @pytest.fixture
 def fetch_db_due(tmp_path):
@@ -456,28 +456,28 @@ def fetch_db_due(tmp_path):
 
 
 def test_teams_due_now_returns_stale_team(fetch_db_due):
-    result = teams_due_now(fetch_db_due)
+    result = entities_due_now(fetch_db_due)
     assert "Stale Team" in result
 
 
 def test_teams_due_now_excludes_fresh_team(fetch_db_due):
-    result = teams_due_now(fetch_db_due)
+    result = entities_due_now(fetch_db_due)
     assert "Fresh Team" not in result
 
 
 def test_teams_due_now_returns_empty_on_empty_db(empty_fetch_db):
-    assert teams_due_now(empty_fetch_db) == []
+    assert entities_due_now(empty_fetch_db) == []
 
 
-# --- teams_with_no_upcoming_match ---
+# --- entities_with_no_upcoming_match ---
 
 def test_teams_with_no_upcoming_match_returns_correct_team(fetch_db):
-    result = teams_with_no_upcoming_match(fetch_db)
+    result = entities_with_no_upcoming_match(fetch_db)
     assert result == ["Indiana Fever"]
 
 
 def test_teams_with_no_upcoming_match_excludes_teams_with_match(fetch_db):
-    result = teams_with_no_upcoming_match(fetch_db)
+    result = entities_with_no_upcoming_match(fetch_db)
     assert "Carlos Alcaraz" not in result
 
 
@@ -496,40 +496,40 @@ def test_teams_with_no_upcoming_match_returns_empty_when_all_have_matches(tmp_pa
         conn.execute("INSERT INTO fetch_log VALUES (?, ?, ?, ?)", (
             "Some Team", now.isoformat(), (now + timedelta(days=1)).isoformat(), 1
         ))
-    assert teams_with_no_upcoming_match(db_path) == []
+    assert entities_with_no_upcoming_match(db_path) == []
 
 
 def test_teams_with_no_upcoming_match_returns_empty_on_empty_db(empty_fetch_db):
-    assert teams_with_no_upcoming_match(empty_fetch_db) == []
+    assert entities_with_no_upcoming_match(empty_fetch_db) == []
 
 
-# --- stale_teams ---
+# --- stale_entities ---
 
 def test_stale_teams_returns_correct_teams(fetch_db):
     # fetch_db: Alcaraz fetched 5h ago, Fever fetched 10h ago: both stale at threshold=4h
-    df = stale_teams(hours=4, db_path=fetch_db)
+    df = stale_entities(hours=4, db_path=fetch_db)
     assert len(df) == 2
 
 
 def test_stale_teams_filters_by_threshold(fetch_db):
     # only Fever (10h) is stale at threshold=8h
-    df = stale_teams(hours=8, db_path=fetch_db)
+    df = stale_entities(hours=8, db_path=fetch_db)
     assert len(df) == 1
-    assert df.iloc[0]["team_name"] == "Indiana Fever"
+    assert df.iloc[0]["entity"] == "Indiana Fever"
 
 
 def test_stale_teams_sorted_stalest_first(fetch_db):
-    df = stale_teams(hours=4, db_path=fetch_db)
+    df = stale_entities(hours=4, db_path=fetch_db)
     assert df.iloc[0]["hours_since_fetch"] >= df.iloc[1]["hours_since_fetch"]
 
 
 def test_stale_teams_returns_empty_when_all_fresh(fetch_db):
-    df = stale_teams(hours=1000, db_path=fetch_db)
+    df = stale_entities(hours=1000, db_path=fetch_db)
     assert len(df) == 0
 
 
 def test_stale_teams_returns_empty_on_empty_db(empty_fetch_db):
-    df = stale_teams(hours=0, db_path=empty_fetch_db)
+    df = stale_entities(hours=0, db_path=empty_fetch_db)
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 0
 

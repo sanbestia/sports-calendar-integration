@@ -10,10 +10,10 @@ from sports_calendar.logs import sanitize_for_log
 logger = logging.getLogger(__name__)
 
 
-def _build_api_path(sport: str, player_type: str, team_id: str, endpoint: str, page: int | None = None) -> str:
+def _build_api_path(sport: str, player_type: str, entity_id: str, endpoint: str, page: int | None = None) -> str:
     """Build an AllSports API path (the part after the base URL) for the given sport, entity, and endpoint."""
     event_type = "events" if sport == "tennis" else "matches"  # the API uses 'events' for tennis and 'matches' for all other sports
-    path = f"{sport_path_prefix(sport)}{player_type}/{team_id}/{event_type}/{endpoint}"
+    path = f"{sport_path_prefix(sport)}{player_type}/{entity_id}/{event_type}/{endpoint}"
     if page is not None:
         path += f"/{page}"
     return path
@@ -28,7 +28,7 @@ def _stage_name(round_info: RoundInfo | None, fallback: str) -> str:
     return fallback
 
 
-def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id: str) -> list[Event]:
+def _fetch_events(client: AllSportsClient, sport: str, player_type: str, entity_id: str) -> list[Event]:
     """Return the upcoming events: every page of 'next', or the 'near' fallback when 'next' has none.
 
     Raises AllSportsError when a request fails or a response cannot be read.
@@ -36,7 +36,7 @@ def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id
     events: list[Event] = []
     page = 0
     while True:
-        parsed = client.get(_build_api_path(sport, player_type, team_id, "next", page), NextPageResponse)
+        parsed = client.get(_build_api_path(sport, player_type, entity_id, "next", page), NextPageResponse)
         if parsed is None:
             if page == 0:  # empty body on page 0 means zero results; on later pages it is an error
                 logger.info("No upcoming games found with 'next' endpoint, trying 'near'...")
@@ -50,7 +50,7 @@ def _fetch_events(client: AllSportsClient, sport: str, player_type: str, team_id
     if events:
         return events
 
-    near = client.get(_build_api_path(sport, player_type, team_id, "near"), NearResponse)
+    near = client.get(_build_api_path(sport, player_type, entity_id, "near"), NearResponse)
     if near is None:
         raise AllSportsError("Empty response from 'near' endpoint")
     if not near.nextEvent:
@@ -100,17 +100,17 @@ def _log_found(matches: list[Match], time_zone: str) -> None:
                     f"next: {sanitize_for_log(str(next_match))} ({sanitize_for_log(time_zone)})")
 
 
-def get_next_matches(client: AllSportsClient, team_id: str, team_name: str, player_type: str, sport: str, time_zone: str) -> list[Match] | None:
-    """Fetch upcoming matches for a team from the AllSports API and return them as Match objects.
+def get_next_matches(client: AllSportsClient, entity_id: str, entity_name: str, player_type: str, sport: str, time_zone: str) -> list[Match] | None:
+    """Fetch upcoming matches for an entity (a team or a player) from the AllSports API and return them as Match objects.
 
-    Returns [] when the team has no upcoming matches, and None when the fetch failed, so callers can retry
+    Returns [] when the entity has no upcoming matches, and None when the fetch failed, so callers can retry
     a failure soon instead of treating it as an empty schedule.
     """
-    logger.info(f"Looking for games featuring {sanitize_for_log(team_name)}...")
+    logger.info(f"Looking for games featuring {sanitize_for_log(entity_name)}...")
     try:
-        events = _fetch_events(client, sport, player_type, team_id)
+        events = _fetch_events(client, sport, player_type, entity_id)
     except AllSportsError as e:
-        logger.error(f"Couldn't get matches for {sanitize_for_log(team_name)}: {e}")
+        logger.error(f"Couldn't get matches for {sanitize_for_log(entity_name)}: {e}")
         return None
     matches = [_to_match(event, sport, time_zone) for event in _without_cancelled(events)]
     _log_found(matches, time_zone)
