@@ -48,18 +48,26 @@ class AllSportsClient:
         Returns None when the body is empty (the API's way to say "no results").
         Raises AllSportsError when the request fails or the body is not the expected JSON.
         """
+        return _parsed(self._request(path), path, model)
+
+    def _request(self, path: str) -> str:
+        """Send the GET, count it, and return the body. A request that never reached the API is not counted."""
         try:
             response = self._session.get(BASE_URL + path, headers=self._headers, timeout=_TIMEOUT_SECONDS)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             raise AllSportsError(f"Couldn't communicate with sports API ({path}): {e}") from e
-        self._tracker.increment()  # count only requests that reached the API
+        self._tracker.increment()
         self.calls_made += 1
+        return response.text
 
-        if not response.text:
-            return None
-        try:
-            return model.model_validate(json.loads(response.text))
-        except json.JSONDecodeError as e:
-            raise AllSportsError(f"Invalid JSON response from {path}: {sanitize_for_log(response.text[:200])}") from e
-        except ValidationError as e:
-            raise AllSportsError(f"Unexpected response structure from {path}: {e}") from e
+
+def _parsed(body: str, path: str, model: type[ResponseModel]) -> ResponseModel | None:
+    """Return the body validated as `model`, or None for an empty body; raise AllSportsError when it is not that JSON."""
+    if not body:
+        return None
+    try:
+        return model.model_validate(json.loads(body))
+    except json.JSONDecodeError as e:
+        raise AllSportsError(f"Invalid JSON response from {path}: {sanitize_for_log(body[:200])}") from e
+    except ValidationError as e:
+        raise AllSportsError(f"Unexpected response structure from {path}: {e}") from e
