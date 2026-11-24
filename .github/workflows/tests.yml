@@ -24,4 +24,4 @@ jobs:
         run: uv sync --frozen  # the Python version comes from .python-version
 
       - name: Run tests
-        run: uv run pytest -q  # no .env in CI; conftest.py provides a fake RAPIDAPI_KEY
+        run: uv run pytest -q  # no .env in CI: the tests pass fakes, so they need no secrets
