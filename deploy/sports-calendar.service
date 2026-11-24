@@ -14,7 +14,7 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/sports_calendar_integration
 # --no-dev: the service needs neither pytest nor pandas (the dev and stats groups). The deploy installs the
 # packages with `uv sync --locked --no-dev`, so this start only checks them.
-ExecStart=/home/ubuntu/.local/bin/uv run --no-dev python main.py --queries queries.json
+ExecStart=/home/ubuntu/.local/bin/uv run --no-dev sports-calendar --queries queries.json
 # A oneshot has no start timeout by default; a run that hangs would then block every later run. A normal run
 # takes seconds.
 TimeoutStartSec=5min

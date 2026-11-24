@@ -2,7 +2,7 @@ import datetime
 from unittest.mock import MagicMock
 
 from sports_calendar.config import API_CALL_CEILING
-from sports_calendar.tools.daily_summary import log_daily_summary, main
+from sports_calendar.daily_summary import log_daily_summary, log_yesterday_summary
 from tests.fakes import FakeClock
 
 DAY = datetime.date(2026, 1, 15)
@@ -48,11 +48,11 @@ def test_a_failed_read_is_a_warning(caplog):
     assert "Could not build the daily summary for 2026-01-15: database is locked" in caplog.text
 
 
-def test_main_summarizes_yesterday():
+def test_summarizes_yesterday():
     """The timer starts it at 00:05, so the finished day is yesterday."""
     api_tracker, history = make_stores(calls_that_day=10)
 
-    main(clock=FakeClock(datetime.datetime(2026, 1, 16, 0, 5, tzinfo=datetime.timezone.utc)), api_tracker=api_tracker, history=history)
+    log_yesterday_summary(clock=FakeClock(datetime.datetime(2026, 1, 16, 0, 5, tzinfo=datetime.timezone.utc)), api_tracker=api_tracker, history=history)
 
     api_tracker.calls_on.assert_called_once_with(DAY)
     history.day_summary.assert_called_once_with(DAY)

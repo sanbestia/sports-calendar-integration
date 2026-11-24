@@ -29,7 +29,7 @@ def test_unit_is_one_run_of_the_script_with_the_queries_file():
     service = read_unit("sports-calendar.service")["Service"]
 
     assert service["Type"] == "oneshot"
-    assert service["ExecStart"].endswith("uv run --no-dev python main.py --queries queries.json")
+    assert service["ExecStart"].endswith("uv run --no-dev sports-calendar --queries queries.json")
     assert service["WorkingDirectory"] == "/home/ubuntu/sports_calendar_integration"
 
 
@@ -59,7 +59,7 @@ def test_summary_runs_each_day_and_after_a_day_the_vm_was_down():
 
     assert timer["Timer"]["OnCalendar"] == "*-*-* 00:05:00"
     assert timer["Timer"]["Persistent"] == "true"
-    assert service["ExecStart"].endswith("uv run --no-dev python -m sports_calendar.tools.daily_summary")
+    assert service["ExecStart"].endswith("uv run --no-dev sports-calendar-summary")
 
 
 def test_deploy_installs_every_unit_file():

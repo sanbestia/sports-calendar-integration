@@ -1,6 +1,6 @@
 """Add teams or players to queries.json in one go: search, choose the calendar, save, and optionally deploy.
 
-Run it as `uv run python -m sports_calendar.tools.add_entity`. It only connects other functions:
+Run it as `uv run add-entity`. It only connects other functions:
 get_ids (search and pick) -> add_query (check and save) -> push_queries (secret + deploy).
 """
 import logging
@@ -58,7 +58,7 @@ def add_entities(client: AllSportsClient, queries_path: str, env: Mapping[str, s
     if added and _ask_yes_no("Upload queries.json and deploy now? Y/N: ", ask):
         push(queries_path)
     elif added:
-        logger.info("Not deployed. Run `uv run python -m sports_calendar.tools.push_queries` when you are ready.")
+        logger.info("Not deployed. Run `uv run push-queries` when you are ready.")
     return added
 
 
@@ -70,7 +70,3 @@ def main() -> None:
     load_dotenv()
     client = AllSportsClient(api_key=os.environ.get("RAPIDAPI_KEY", ""), tracker=APICallTracker())
     add_entities(client, "queries.json", os.environ)
-
-
-if __name__ == "__main__":
-    main()

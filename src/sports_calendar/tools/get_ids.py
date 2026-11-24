@@ -61,7 +61,3 @@ def main():
     logger.info("\n--- Results ---")
     for entity_id, data in results.items():
         logger.info(f"{data['name']} | ID: {entity_id} | Type: {data['player_type']} | Sport: {data['sport']}")
-
-
-if __name__ == '__main__':
-    main()
