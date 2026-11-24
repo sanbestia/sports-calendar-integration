@@ -6,9 +6,18 @@ from unittest.mock import MagicMock
 
 from sports_calendar.allsports.client import AllSportsClient, AllSportsError, BASE_URL
 from sports_calendar.allsports.schemas import SearchResponse
-from tests.fakes import FakeResponse, FakeSession, make_client
+from sports_calendar.storage.api_calls import APICallTracker
+from tests.fakes import FakeClock, FakeResponse, FakeSession, make_client
 
 ONE_RESULT = {"results": [{"entity": {"id": 3427, "name": "Los Angeles Lakers", "gender": "M"}}]}
+
+
+@pytest.fixture
+def tracker():
+    """A real call tracker on in-memory SQLite, so a test reads the stored count that the next run and the daily summary read."""
+    tracker = APICallTracker(":memory:", clock=FakeClock())
+    yield tracker
+    tracker.close()
 
 
 def test_refuses_to_start_without_api_key():
@@ -37,13 +46,12 @@ def test_returns_validated_model():
     assert result.results[0].entity.name == "Los Angeles Lakers"
 
 
-def test_returns_none_for_empty_body_and_counts_the_call():
+def test_returns_none_for_empty_body_and_counts_the_call(tracker):
     """An empty 204 is the API's answer for 'no results', and it still used one API call."""
-    tracker = MagicMock()
     result = make_client(FakeSession(FakeResponse("", status_code=204)), tracker).get("search/zzz", SearchResponse)
 
     assert result is None
-    tracker.increment.assert_called_once()
+    assert tracker.calls_on(tracker.current_date) == 1
 
 
 QUOTA_EXCEEDED = json.dumps({"message": "You have exceeded the DAILY quota for Requests on your current plan, BASIC, by the provider."})
@@ -53,13 +61,12 @@ QUOTA_EXCEEDED = json.dumps({"message": "You have exceeded the DAILY quota for R
     (503, "", "HTTP 503 from search/lakers"),
     (429, QUOTA_EXCEEDED, "HTTP 429 from search/lakers: .*DAILY quota"),
 ])
-def test_error_status_raises_and_is_counted(status, body, error):
+def test_error_status_raises_and_is_counted(status, body, error, tracker):
     """A status other than 2xx is an error, also when its body is empty or is JSON that the model accepts, and it used one API call."""
-    tracker = MagicMock()
     with pytest.raises(AllSportsError, match=error):
         make_client(FakeSession(FakeResponse(body, status_code=status)), tracker).get("search/lakers", SearchResponse)
 
-    tracker.increment.assert_called_once()
+    assert tracker.calls_on(tracker.current_date) == 1
 
 
 @pytest.mark.parametrize("failure", [requests.exceptions.ConnectionError, requests.exceptions.Timeout])
