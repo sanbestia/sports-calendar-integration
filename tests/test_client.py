@@ -1,10 +1,12 @@
+import json
+
 import pytest
 import requests
 from unittest.mock import MagicMock
 
 from sports_calendar.allsports.client import AllSportsClient, AllSportsError, BASE_URL
 from sports_calendar.allsports.schemas import SearchResponse
-from tests.fakes import FakeSession, make_client
+from tests.fakes import FakeResponse, FakeSession, make_client
 
 ONE_RESULT = {"results": [{"entity": {"id": 3427, "name": "Los Angeles Lakers", "gender": "M"}}]}
 
@@ -36,11 +38,27 @@ def test_returns_validated_model():
 
 
 def test_returns_none_for_empty_body_and_counts_the_call():
-    """An empty body means 'no results', and it still used one API call."""
+    """An empty 204 is the API's answer for 'no results', and it still used one API call."""
     tracker = MagicMock()
-    result = make_client(FakeSession(""), tracker).get("search/zzz", SearchResponse)
+    result = make_client(FakeSession(FakeResponse("", status_code=204)), tracker).get("search/zzz", SearchResponse)
 
     assert result is None
+    tracker.increment.assert_called_once()
+
+
+QUOTA_EXCEEDED = json.dumps({"message": "You have exceeded the DAILY quota for Requests on your current plan, BASIC, by the provider."})
+
+
+@pytest.mark.parametrize("status, body, error", [
+    (503, "", "HTTP 503 from search/lakers"),
+    (429, QUOTA_EXCEEDED, "HTTP 429 from search/lakers: .*DAILY quota"),
+])
+def test_error_status_raises_and_is_counted(status, body, error):
+    """A status other than 2xx is an error, also when its body is empty or is JSON that the model accepts, and it used one API call."""
+    tracker = MagicMock()
+    with pytest.raises(AllSportsError, match=error):
+        make_client(FakeSession(FakeResponse(body, status_code=status)), tracker).get("search/lakers", SearchResponse)
+
     tracker.increment.assert_called_once()
 
 

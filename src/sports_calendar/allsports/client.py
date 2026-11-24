@@ -45,20 +45,27 @@ class AllSportsClient:
     def get(self, path: str, model: type[ResponseModel]) -> ResponseModel | None:
         """GET BASE_URL + path and validate the JSON body as `model`.
 
-        Returns None when the body is empty (the API's way to say "no results").
-        Raises AllSportsError when the request fails or the body is not the expected JSON.
+        Returns None when a 2xx body is empty (the API's way to say "no results"; `next/0` answers 204 No Content).
+        Raises AllSportsError when the request fails, the status is not 2xx, or the body is not the expected JSON.
         """
         return _parsed(self._request(path), path, model)
 
     def _request(self, path: str) -> str:
-        """Send the GET, count it, and return the body. A request that never reached the API is not counted."""
+        """Send the GET, count it, and return the body of a 2xx answer. A request that never reached the API is not counted."""
         try:
             response = self._session.get(BASE_URL + path, headers=self._headers, timeout=_TIMEOUT_SECONDS)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             raise AllSportsError(f"Couldn't communicate with sports API ({path}): {e}") from e
         self._tracker.increment()
         self.calls_made += 1
+        return _successful_body(response, path)
+
+
+def _successful_body(response: requests.Response, path: str) -> str:
+    """Return the body of a 2xx answer; raise AllSportsError for any other status, so an empty error body never reads as "no results"."""
+    if 200 <= response.status_code < 300:
         return response.text
+    raise AllSportsError(f"HTTP {response.status_code} from {path}: {sanitize_for_log(response.text[:200])}")
 
 
 def _parsed(body: str, path: str, model: type[ResponseModel]) -> ResponseModel | None:
