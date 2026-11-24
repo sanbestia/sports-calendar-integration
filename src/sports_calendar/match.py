@@ -1,41 +1,45 @@
 import datetime
-from sports_calendar.config import GRAND_SLAM_TOURNAMENTS, SPORT_DURATIONS
+from dataclasses import dataclass
+
+BASE_DURATION_HOURS = 2  # the expected length of a match in any sport
+EXTRA_HOURS_BY_SPORT = {"tennis": 1, "esport": 3}  # added to the base for these sports
+GRAND_SLAM_EXTRA_HOURS = 2  # added for tennis at a Grand Slam, where men play best of five sets
+GRAND_SLAM_TOURNAMENTS = ("US Open", "Wimbledon", "Australian Open", "French Open")
 
 
+def expected_duration_hours(sport: str, tournament: str) -> int:
+    """Return how many hours a match of this sport and tournament is expected to last."""
+    hours = BASE_DURATION_HOURS + EXTRA_HOURS_BY_SPORT.get(sport, 0)
+    if sport == "tennis" and any(name in tournament for name in GRAND_SLAM_TOURNAMENTS):  # the API adds the year: "Australian Open 2025"
+        hours += GRAND_SLAM_EXTRA_HOURS
+    return hours
+
+
+@dataclass
 class Match:
-    def __init__(
-        self,
-        side_one: str,
-        side_two: str,
-        tournament: str,
-        stage: str,
-        game_id: int | str,
-        sport: str,
-        start_time: datetime.datetime,
-        home_team_id: int | str | None = None,
-        away_team_id: int | str | None = None,
-    ):
-        """Construct a Match, normalising IDs to str and computing the expected end time."""
-        self.side_one = side_one
-        self.side_two = side_two
-        self.tournament = tournament
-        self.stage = stage
-        self.game_id = str(game_id)  # normalize to str; API inconsistently returns int or str
-        self.sport = sport
-        self.start_time = start_time
-        self.home_team_id = str(home_team_id) if home_team_id is not None else None  # normalize to str for consistent comparison with calendar event properties
-        self.away_team_id = str(away_team_id) if away_team_id is not None else None
-        self.define_expected_end_time()
+    """One upcoming match, as its calendar event shows it.
 
-    def define_expected_end_time(self) -> None:
-        """Set expected_end_time from start_time using additive sport-specific duration offsets."""
-        self.expected_end_time = self.start_time + datetime.timedelta(hours=SPORT_DURATIONS["default"])  # base for all sports; tennis and esport stack additional hours on top
-        if self.sport == "tennis":
-            self.expected_end_time += datetime.timedelta(hours=SPORT_DURATIONS["tennis"])
-            if any(substr in self.tournament for substr in GRAND_SLAM_TOURNAMENTS):  # substring match because API returns names like "Australian Open 2025"
-                self.expected_end_time += datetime.timedelta(hours=SPORT_DURATIONS["grand_slam"])
-        if self.sport == "esport":
-            self.expected_end_time += datetime.timedelta(hours=SPORT_DURATIONS["esport"])
+    The API sends the IDs as int or str; they are stored as text, so they compare equal to the calendar event's properties.
+    """
+    side_one: str
+    side_two: str
+    tournament: str
+    stage: str
+    game_id: int | str
+    sport: str
+    start_time: datetime.datetime
+    home_team_id: int | str | None = None
+    away_team_id: int | str | None = None
+
+    def __post_init__(self) -> None:
+        self.game_id = str(self.game_id)
+        self.home_team_id = str(self.home_team_id) if self.home_team_id is not None else None
+        self.away_team_id = str(self.away_team_id) if self.away_team_id is not None else None
+
+    @property
+    def expected_end_time(self) -> datetime.datetime:
+        """The start time plus the expected length of the match."""
+        return self.start_time + datetime.timedelta(hours=expected_duration_hours(self.sport, self.tournament))
 
     def __str__(self) -> str:
         """Return a one-line summary: sides, tournament, stage, and start time."""
