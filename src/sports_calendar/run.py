@@ -8,9 +8,11 @@ from typing import Any
 from sports_calendar.allsports.client import AllSportsClient
 from sports_calendar.allsports.matches import get_next_matches
 from sports_calendar.clock import Clock
+from sports_calendar.config import FETCH_THRESHOLDS
 from sports_calendar.google_calendar.auth import TOKEN_ERRORS
 from sports_calendar.google_calendar.sync import SyncResult, update_events
 from sports_calendar.heartbeat import Heartbeat
+from sports_calendar.logs import sanitize_for_log
 from sports_calendar.storage.api_calls import APICallTracker
 from sports_calendar.storage.fetch_history import FetchHistory
 from sports_calendar.storage.fetch_tracker import FetchTracker
@@ -142,13 +144,35 @@ def run_cycle(queries: dict, deps: RunDeps) -> int:
     return fetched
 
 
-def report_run(deps: RunDeps, fetched: int, version: str) -> None:
-    """Log the API call count and the version (at INFO only after a run that fetched), then ping the heartbeat."""
+def failing_entities(queries: dict, deps: RunDeps) -> list[str]:
+    """Return the tracked entities whose last alert_streak fetches all failed: the retries did not fix them."""
+    alert_streak = FETCH_THRESHOLDS["failed"]["alert_streak"]
+    return [name for name in queries if deps.fetch_tracker.fail_streak(name) >= alert_streak]
+
+
+def report_run(deps: RunDeps, fetched: int, failing: list[str], version: str) -> None:
+    """Log the API call count and the version (at INFO only after a run that fetched), then report to the heartbeat:
+    a fail ping while an entity keeps failing, else the normal ping."""
     level = logging.INFO if fetched else logging.DEBUG  # a run that only skipped is not worth a line: there are 96 runs a day
     logger.log(level, f"{deps.api_tracker.status()} · version {version}")
-    deps.heartbeat.ping()
+    if failing:
+        _report_failing(deps, failing)
+    else:
+        deps.heartbeat.ping()
+
+
+def _report_failing(deps: RunDeps, failing: list[str]) -> None:
+    """Log the failing entities, and send a fail ping that names none of them: healthchecks.io is an outside service.
+
+    Each run sends it again, so the check stays down until the fetch works; healthchecks.io alerts only on a change.
+    """
+    alert_streak = FETCH_THRESHOLDS["failed"]["alert_streak"]
+    logger.warning(f"Failed {alert_streak} or more times in a row: {', '.join(sanitize_for_log(name) for name in failing)}")
+    deps.heartbeat.fail(f"{len(failing)} of the tracked teams and players failed {alert_streak} or more times in a row. "
+                        f"See `journalctl -u sports-calendar -p err` on the server.")
 
 
 def run_once(queries: dict, deps: RunDeps, version: str) -> None:
     """Fetch and sync every entity that is due, then report the run. The systemd timer starts a run every 15 minutes."""
-    report_run(deps, run_cycle(queries, deps), version)
+    fetched = run_cycle(queries, deps)
+    report_run(deps, fetched, failing_entities(queries, deps), version)

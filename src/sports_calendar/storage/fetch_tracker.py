@@ -100,6 +100,12 @@ class FetchTracker(SqliteStore):
             return 0.0
         return self._hours_left(state, self._clock.now())
 
+    def fail_streak(self, entity_name: str) -> int:
+        """Return how many fetches of this entity failed in a row (0 after a fetch that worked, or with no row)."""
+        with self._connect() as conn:
+            state = self._read_state(conn, entity_name)
+        return state.fail_streak if state else 0
+
     @staticmethod
     def _read_state(conn: sqlite3.Connection, entity_name: str) -> FetchState | None:
         """Return the stored state of this entity, or None when it has no row yet."""
