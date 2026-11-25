@@ -312,6 +312,23 @@ def test_does_not_delete_past_event():
     mock_service.events().delete.assert_not_called()
 
 
+def test_an_empty_game_list_deletes_only_the_entitys_future_events():
+    """run passes no matches when an entity's schedule stays empty: its future events go, and a game that has
+    started and another entity's game stay."""
+    future = make_existing_event(game_id="cancelled_id", home_team_id="h1", away_team_id="a1")
+    started = make_existing_event(game_id="played_id", home_team_id="h1", away_team_id="a1", start_time=START_TIME)
+    other_entity = make_existing_event(game_id="other_id", home_team_id="other_h", away_team_id="other_a")
+    for event, event_id in ((future, "future_event"), (started, "started_event"), (other_entity, "other_event")):
+        event["id"] = event_id
+    mock_service = make_mock_service(existing_events=[future, started, other_entity])
+
+    result = update_events(service=mock_service, calendar_id="fake_calendar_id", game_list=[], time_zone="UTC",
+                           entity_id="a1")
+
+    mock_service.events().delete.assert_called_once_with(calendarId="fake_calendar_id", eventId="future_event")
+    assert result == SyncResult(event_count=0, deleted=1)
+
+
 # --- update_events: paging and error paths ---
 
 def make_http_error(status: int = 403) -> HttpError:

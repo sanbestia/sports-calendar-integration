@@ -573,6 +573,31 @@ def test_existing_empty_rows_start_with_the_unknown_interval(tmp_path):
     assert tracker.hours_until_next_fetch("Indiana Fever") == pytest.approx(EMPTY_HOURS)
 
 
+@pytest.mark.parametrize("results, expected", [
+    ([], False),
+    (["failed"], False),  # the only fetch failed: there is no result yet
+    (["matches"], False),
+    (["empty"], True),
+    (["matches", "empty"], True),
+    (["empty", "matches"], False),
+    (["empty", "failed"], True),  # a failure keeps the result before it
+])
+def test_last_result_was_empty_reads_the_latest_fetch_that_worked(results, expected):
+    """run syncs an empty result only after another one, so that a single empty answer deletes no event."""
+    clock = FakeClock()
+    tracker = make_tracker(clock=clock)
+    for result in results:
+        if result == "failed":
+            tracker.record_failure("Indiana Fever")
+        elif result == "matches":
+            tracker.record_fetch("Indiana Fever", clock.now() + timedelta(days=2), 1, player_type="team")
+        else:
+            tracker.record_fetch("Indiana Fever", None, 0, player_type="team")
+        clock.advance(hours=1)
+
+    assert tracker.last_result_was_empty("Indiana Fever") is expected
+
+
 def test_a_read_only_tracker_reads_the_schedule_but_cannot_write(tmp_path):
     """db_stats asks a read-only tracker, so the tool can never change the service's database."""
     db_path = tmp_path / "fetch_log.db"
