@@ -75,9 +75,17 @@ def _fetch_and_sync(name: str, entry: dict, deps: RunDeps) -> FetchOutcome:
     if matches is None:
         return FetchOutcome("failed", error="fetch failed (see the log)")
     if not matches:
-        return FetchOutcome("empty")
+        return _empty_outcome(name, entry, deps)
     return FetchOutcome("matches", matches=len(matches), sync=_sync(deps, entry, matches),
                         earliest=min(match.start_time for match in matches))
+
+
+def _empty_outcome(name: str, entry: dict, deps: RunDeps) -> FetchOutcome:
+    """Sync an empty result only when the result before it was empty too: the sync then deletes the entity's
+    future events. One empty result is not enough, because the API can return nothing while a match exists."""
+    if not deps.fetch_tracker.last_result_was_empty(name):
+        return FetchOutcome("empty")
+    return FetchOutcome("empty", sync=_sync(deps, entry, []))
 
 
 def _record_fetch(deps: RunDeps, name: str, entry: dict, result: FetchOutcome) -> None:

@@ -106,6 +106,12 @@ class FetchTracker(SqliteStore):
             state = self._read_state(conn, entity_name)
         return state.fail_streak if state else 0
 
+    def last_result_was_empty(self, entity_name: str) -> bool:
+        """Return True when the latest fetch of this entity that worked found no match. A failure keeps that result."""
+        with self._connect() as conn:
+            state = self._read_state(conn, entity_name)
+        return state is not None and state.empty_since is not None
+
     @staticmethod
     def _read_state(conn: sqlite3.Connection, entity_name: str) -> FetchState | None:
         """Return the stored state of this entity, or None when it has no row yet."""

@@ -20,7 +20,7 @@ A Python tool that automatically syncs upcoming sports matches to your Google Ca
 
 - Tracks multiple teams and players across different sports (football, basketball, tennis, esports and more)
 - Automatically creates and updates Google Calendar events with match details, including when the time, the teams, the tournament or the stage change
-- Automatically removes calendar events for cancelled or rescheduled matches (detected via API status or disappearance from the schedule)
+- Automatically removes calendar events for cancelled or rescheduled matches (detected via API status or disappearance from the schedule; for a schedule that becomes empty, from its second empty result in a row)
 - Falls back to alternative API endpoints when the primary one returns no results
 - Supports predefined query files for fully automated runs
 - Interactive mode to search for teams and players on the fly
@@ -113,7 +113,7 @@ Each team is re-fetched at different rates depending on how soon their next matc
 
 A team with a full season published (`season.min_matches`, 10 or more upcoming matches, for example an NBA team) waits at least `season.min_recheck_hours` (24h), whatever its band. Its next game is always within a few days, so the `near` band alone would fetch it every 12h, and each fetch of a full season reads several pages (3 API calls for an NBA season). A full season changes rarely, mostly in titles and team names, so a change can wait up to a day. The rule only makes a wait longer: a season whose first game is more than 7 days away keeps the `far` interval.
 
-When a team has no upcoming match, it is checked every `unknown.recheck_hours` for the first `unknown.grace_days`. That covers the gap between playoff rounds, when the next game is not announced yet, and a tennis player waiting for the next round or draw. After that, each empty result doubles the wait, up to `unknown.max_recheck_hours`: 12h for players, because a tennis draw can come out less than a day before round 1, and 48h for teams in their off-season. A fetch that finds a match resets this.
+When a team has no upcoming match, it is checked every `unknown.recheck_hours` for the first `unknown.grace_days`. That covers the gap between playoff rounds, when the next game is not announced yet, and a tennis player waiting for the next round or draw. After that, each empty result doubles the wait, up to `unknown.max_recheck_hours`: 12h for players, because a tennis draw can come out less than a day before round 1, and 48h for teams in their off-season. A fetch that finds a match resets this. From the second empty result in a row, a fetch also deletes the team's future events that are still in the calendar (cancelled games, or games gone from the schedule). A single empty result deletes nothing, because the API can return nothing while a match exists.
 
 A failed fetch (a timeout, an error status or an unreadable response from the API, or a Calendar error) is not treated as "no matches". The team is retried after `failed.recheck_hours`, and the wait doubles for each failure in a row up to `failed.max_recheck_hours`, so one broken team cannot use the daily API budget. A successful fetch returns the team to its normal schedule. An error for one team is logged and does not stop the service or the other teams.
 

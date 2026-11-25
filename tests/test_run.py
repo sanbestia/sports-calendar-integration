@@ -39,6 +39,7 @@ def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_r
     fetch_tracker.should_fetch.return_value = should_fetch
     fetch_tracker.hours_until_next_fetch.return_value = 3.0
     fetch_tracker.fail_streak.return_value = 0
+    fetch_tracker.last_result_was_empty.return_value = False  # an empty result is a first one, which does not sync
     sync_results = [SyncResult(event_count=r) if isinstance(r, int) else r for r in sync_side_effect]
     return RunDeps(
         client=MagicMock(calls_made=0),
@@ -83,13 +84,45 @@ def test_records_earliest_match_and_count():
     deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", EARLY, 2, player_type="player")
 
 
-def test_skips_calendar_update_when_no_matches():
-    """With no matches, the calendar is not touched and the fetch is recorded as empty."""
+def test_records_an_empty_result_with_no_next_match():
     deps = make_deps(matches=[])
     run_cycle(ALCARAZ_QUERIES, deps)
 
-    deps.sync_events.assert_not_called()
     deps.fetch_tracker.record_fetch.assert_called_once_with("Carlos Alcaraz", None, 0, player_type="player")
+
+
+def deps_after_one_fetch(result_before: str | None, sync_result: SyncResult) -> RunDeps:
+    """Deps with a real fetch tracker that holds result_before ('matches', 'empty' or None for no fetch yet),
+    due for its next fetch, which finds no match."""
+    deps = make_deps(matches=[], sync_side_effect=(sync_result,))
+    deps.fetch_tracker = FetchTracker(":memory:", clock=deps.clock)
+    if result_before == "matches":
+        deps.fetch_tracker.record_fetch("Carlos Alcaraz", deps.clock.now() + datetime.timedelta(days=2), 1, player_type="player")
+    elif result_before == "empty":
+        deps.fetch_tracker.record_fetch("Carlos Alcaraz", None, 0, player_type="player")
+    deps.clock.advance(hours=deps.fetch_tracker.hours_until_next_fetch("Carlos Alcaraz"))
+    return deps
+
+
+@pytest.mark.parametrize("result_before", [None, "matches"])
+def test_a_first_empty_result_leaves_the_calendar_alone(result_before):
+    """The API can return nothing while a match exists, and a sync of no matches deletes every future event
+    of the entity: one empty result is not enough to delete them."""
+    deps = deps_after_one_fetch(result_before, SyncResult(event_count=0))
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    deps.sync_events.assert_not_called()
+    assert history_row(deps)["outcome"] == "empty"
+
+
+def test_a_second_empty_result_in_a_row_removes_the_events_that_are_left():
+    """A schedule that stays empty syncs an empty list, so the sync deletes the entity's future events: the games
+    were cancelled or are gone from the schedule. The history row stays 'empty' and records the deletions."""
+    deps = deps_after_one_fetch("empty", SyncResult(event_count=0, deleted=2))
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    assert deps.sync_events.call_args.kwargs["game_list"] == []
+    assert (history_row(deps)["outcome"], history_row(deps)["deleted"]) == ("empty", 2)
 
 
 def test_skips_entity_that_is_not_due():
