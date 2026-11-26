@@ -53,8 +53,13 @@ def load_queries(path: str, env: Mapping[str, str]) -> dict[str, Query]:
             for name, entry in parse_queries(_read_entries(path)).items()}
 
 
-def parse_queries(raw: Mapping[str, object]) -> dict[str, QueryEntry]:
-    """Check each entry of a parsed queries.json; raise ValueError that names the entry and its bad or missing fields."""
+def parse_queries(raw: object) -> dict[str, QueryEntry]:
+    """Check each entry of a parsed queries.json; raise ValueError that names the entry and its bad or missing fields.
+
+    A file with no entries is refused too: a run with nothing to track would pass as healthy.
+    """
+    if not isinstance(raw, Mapping) or not raw:
+        raise ValueError("queries.json has no entries: it must be an object of {name: entry}")
     return {name: _parse_entry(name, entry) for name, entry in raw.items()}
 
 
