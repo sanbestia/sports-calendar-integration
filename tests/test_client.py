@@ -2,12 +2,11 @@ import json
 
 import pytest
 import requests
-from unittest.mock import MagicMock
 
 from sports_calendar.allsports.client import AllSportsClient, AllSportsError, BASE_URL
 from sports_calendar.allsports.schemas import SearchResponse
 from sports_calendar.storage.api_calls import APICallTracker
-from tests.fakes import FakeClock, FakeResponse, FakeSession, make_client
+from tests.fakes import FakeClock, FakeResponse, FakeSession, make_client, mock_tracker
 
 ONE_RESULT = {"results": [{"entity": {"id": 3427, "name": "Los Angeles Lakers", "gender": "M"}}]}
 
@@ -24,14 +23,14 @@ def test_refuses_to_start_without_api_key():
     """A missing key stops the service at startup, before any request."""
     session = FakeSession()
     with pytest.raises(ValueError, match="RAPIDAPI_KEY"):
-        AllSportsClient(api_key="", tracker=MagicMock(), session=session)
+        AllSportsClient(api_key="", tracker=mock_tracker(), session=session)
     assert session.requests == []
 
 
 def test_sends_key_host_and_timeout_to_full_url():
     """Every request goes to BASE_URL + path with the RapidAPI headers and a 10 s timeout."""
     session = FakeSession(ONE_RESULT)
-    AllSportsClient(api_key="secret", tracker=MagicMock(), session=session).get("basketball/search/lakers", SearchResponse)
+    AllSportsClient(api_key="secret", tracker=mock_tracker(), session=session).get("basketball/search/lakers", SearchResponse)
 
     request = session.requests[0]
     assert request["url"] == BASE_URL + "basketball/search/lakers"
@@ -72,7 +71,7 @@ def test_error_status_raises_and_is_counted(status, body, error, tracker):
 @pytest.mark.parametrize("failure", [requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout])
 def test_failed_request_raises_and_is_not_counted(failure):
     """A request that never reached the API raises AllSportsError and does not use the budget."""
-    tracker = MagicMock()
+    tracker = mock_tracker()
     with pytest.raises(AllSportsError, match="Couldn't communicate with sports API"):
         make_client(FakeSession(failure), tracker).get("search/lakers", SearchResponse)
 
@@ -97,6 +96,19 @@ def test_the_count_that_rapidapi_sends_raises_the_local_count(headers, stored_co
     make_client(FakeSession(reply), tracker).get("search/lakers", SearchResponse)
 
     assert tracker.calls_on(tracker.current_date) == stored_count
+
+
+def test_no_request_is_sent_once_the_daily_limit_is_reached(tracker):
+    """The run checks the limit only before each entity; one entity's pages must not go past it either."""
+    for _ in range(tracker.daily_limit):
+        tracker.increment()
+    session = FakeSession(ONE_RESULT)
+
+    with pytest.raises(AllSportsError, match="daily API limit"):
+        make_client(session, tracker).get("search/lakers", SearchResponse)
+
+    assert session.requests == []
+    assert tracker.calls_on(tracker.current_date) == tracker.daily_limit
 
 
 def test_invalid_json_raises_with_path():

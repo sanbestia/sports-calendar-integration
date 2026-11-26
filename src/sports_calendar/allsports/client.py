@@ -54,6 +54,8 @@ class AllSportsClient:
 
     def _request(self, path: str) -> str:
         """Send the GET, count it, and return the body of a 2xx answer. A request that never reached the API is not counted."""
+        if self._tracker.is_limit_reached():  # the run checks only between entities; this keeps one entity's pages in budget
+            raise AllSportsError(f"Not sent ({path}): the daily API limit of {self._tracker.daily_limit} calls is reached")
         try:
             response = self._session.get(BASE_URL + path, headers=self._headers, timeout=_TIMEOUT_SECONDS)
         except requests.exceptions.ReadTimeout as e:  # the request reached the API, which counts it
