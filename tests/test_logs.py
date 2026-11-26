@@ -147,3 +147,15 @@ def test_removes_every_escape_sequence_and_control_character(raw):
     """A string from outside must not color, hide, rewrite or split a log line."""
     assert sanitize_for_log(raw).replace(" ", "") == "AB"
 
+@pytest.mark.parametrize("env, level", [({"LOG_LEVEL": "debug"}, logging.DEBUG), ({}, logging.INFO)])
+def test_log_level_comes_from_the_environment(env, level):
+    logger = logging.getLogger("test_log_level")
+    configure_logging(env=env, stream=io.StringIO(), logger=logger)
+
+    assert logger.level == level
+
+
+def test_an_unknown_log_level_stops_the_start():
+    """A typo would otherwise hide the DEBUG lines that someone turned on to look at a problem."""
+    with pytest.raises(ValueError, match="LOUD"):
+        configure_logging(env={"LOG_LEVEL": "loud"}, stream=io.StringIO(), logger=logging.getLogger("test_log_level"))

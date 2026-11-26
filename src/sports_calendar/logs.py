@@ -35,7 +35,7 @@ class JournalFormatter(logging.Formatter):
 
 def configure_logging(env: Mapping[str, str] = os.environ, stream: TextIO | None = None,
                       logger: logging.Logger | None = None, level: int = logging.INFO) -> None:
-    """Send log lines to stream (stderr by default) with JournalFormatter.
+    """Send log lines to stream (stderr by default) with JournalFormatter, at the level that LOG_LEVEL names, else level.
 
     systemd sets JOURNAL_STREAM when the output goes to journald; only then are priority prefixes added.
     """
@@ -43,9 +43,20 @@ def configure_logging(env: Mapping[str, str] = os.environ, stream: TextIO | None
     handler = logging.StreamHandler(stream if stream is not None else sys.stderr)
     handler.setFormatter(JournalFormatter(journal="JOURNAL_STREAM" in env))
     logger.handlers[:] = [handler]
-    logger.setLevel(level)
+    logger.setLevel(_log_level(env, level))
     logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)  # suppress the verbose 'file_cache unavailable' warning emitted by the Google client
 
+
+
+def _log_level(env: Mapping[str, str], default: int) -> int:
+    """The level that LOG_LEVEL names (DEBUG, INFO, WARNING, ERROR), or the default. An unknown name stops the start:
+    a typo would hide the DEBUG lines that someone turned on to look at a problem."""
+    name = env.get("LOG_LEVEL", "").strip().upper()
+    if not name:
+        return default
+    if name not in logging.getLevelNamesMapping():
+        raise ValueError(f"LOG_LEVEL must be DEBUG, INFO, WARNING or ERROR, not {name!r}")
+    return logging.getLevelNamesMapping()[name]
 
 # CSI (7-bit and 8-bit), OSC up to BEL or ST, and the other two-character escapes; CSI and OSC first, as ESC [ and
 # ESC ] would also match the last part
