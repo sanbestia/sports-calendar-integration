@@ -59,6 +59,14 @@ def _fetch_events(client: AllSportsClient, sport: str, player_type: str, entity_
     return near.nextEvent
 
 
+def _each_game_once(events: list[Event]) -> list[Event]:
+    """Keep the first copy of each event id: a game can move to the next page between two page requests."""
+    first_by_id: dict[int, Event] = {}
+    for event in events:
+        first_by_id.setdefault(event.id, event)
+    return list(first_by_id.values())
+
+
 def _is_cancelled(event: Event) -> bool:
     """Return True when the API marks the event 'canceled'. The status is optional: an event with none is not cancelled."""
     return event.status is not None and event.status.type == "canceled"
@@ -112,6 +120,6 @@ def get_next_matches(client: AllSportsClient, entity_id: str, entity_name: str, 
     except AllSportsError as e:
         logger.error(f"Couldn't get matches for {sanitize_for_log(entity_name)}: {e}")
         return None
-    matches = [_to_match(event, sport, time_zone) for event in _without_cancelled(events)]
+    matches = [_to_match(event, sport, time_zone) for event in _without_cancelled(_each_game_once(events))]
     _log_found(matches, time_zone)
     return matches

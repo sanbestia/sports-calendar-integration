@@ -35,7 +35,7 @@ FAKE_NEXT_RESPONSE_PAGE_1 = {
 }
 
 FAKE_NEXT_RESPONSE_PAGE_2 = {
-    "events": [FAKE_EVENT],
+    "events": [{**FAKE_EVENT, "id": 2}],
     "hasNextPage": False
 }
 
@@ -79,6 +79,15 @@ def test_paginates_correctly():
 
     assert len(result) == 2
     assert len(session.requests) == 2
+
+
+def test_a_game_listed_on_two_pages_is_one_match():
+    """A game can move from one page to the next between two requests; a second copy would become a second event."""
+    session = FakeSession(FAKE_NEXT_RESPONSE_PAGE_1, {**FAKE_NEXT_RESPONSE_PAGE_2, "events": [FAKE_EVENT]})
+
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
+
+    assert [match.game_id for match in result] == ["1"]
 
 
 def test_falls_back_to_near_endpoint():

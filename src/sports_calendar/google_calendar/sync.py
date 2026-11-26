@@ -25,28 +25,31 @@ ICONS: dict[str, str] = {
 }
 DEFAULT_ICON = "🏆"  # for a sport that is not in ICONS, so that a new sport does not stop the sync
 
-_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_SERVER_ERROR_CODES = {500, 502, 503, 504}
 _RATE_LIMIT_REASONS = {"rateLimitExceeded", "userRateLimitExceeded"}  # Google sends these as 403, not only as 429
 _MAX_RETRIES = 4
 _BASE_DELAY_SECONDS = 1.0
 _LOOKBACK = timedelta(hours=12)  # events are listed from this long ago, to catch games in progress
 
 
-def _is_transient(error: HttpError) -> bool:
-    """True for an error that a retry can fix: a 429 or a 5xx, or a 403 whose reason is a rate limit."""
-    if error.status_code in _RETRYABLE_STATUS_CODES:
+def _is_transient(error: HttpError, server_errors: bool = True) -> bool:
+    """True for an error that a retry can fix: a rate limit (a 429, or a 403 whose reason is a rate limit), or a 5xx
+    when server_errors is set."""
+    if error.status_code == 429:
         return True
+    if error.status_code in _SERVER_ERROR_CODES:
+        return server_errors
     details = error.error_details if isinstance(error.error_details, list) else []  # a string when the body is not JSON
     return error.status_code == 403 and any(isinstance(d, dict) and d.get("reason") in _RATE_LIMIT_REASONS for d in details)
 
 
-def _execute_with_retry(request, clock: Clock) -> dict:
-    """Execute a Google API request with exponential backoff on transient errors."""
+def _execute_with_retry(request, clock: Clock, retry_server_errors: bool = True) -> dict:
+    """Execute a Google API request with exponential backoff on transient errors (see _is_transient)."""
     for attempt in range(_MAX_RETRIES):
         try:
             return request.execute()
         except HttpError as e:
-            if not _is_transient(e) or attempt == _MAX_RETRIES - 1:
+            if not _is_transient(e, retry_server_errors) or attempt == _MAX_RETRIES - 1:
                 raise
             delay = _BASE_DELAY_SECONDS * (2 ** attempt) + random.uniform(0, 1)
             logger.warning(f"Google API error {e.status_code}, retrying in {delay:.1f}s (attempt {attempt + 1}/{_MAX_RETRIES})")
@@ -113,6 +116,18 @@ def _lookback_start(now: datetime) -> str:
     return (now - _LOOKBACK).replace(microsecond=0).isoformat()
 
 
+def _split_copies(events: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split the events into the first one of each stored game_id and the later copies of a game."""
+    seen: set[str] = set()
+    first, copies = [], []
+    for event in events:
+        game_id = _stored_properties(event).get("game_id")
+        (copies if game_id and game_id in seen else first).append(event)
+        if game_id:
+            seen.add(game_id)
+    return first, copies
+
+
 def _index_by_game_id(events: list[dict]) -> dict[str, dict]:
     """Map each event's stored game_id to the event; warn about an event that has no game_id."""
     by_game_id: dict[str, dict] = {}
@@ -140,14 +155,19 @@ def _is_orphan(event: dict, entity_id: str, game_ids: set[str], now: datetime) -
     An event of another entity that shares the calendar is never an orphan. Neither is an event that has started:
     the sports API returns only upcoming games, so a past game is missing from the list even when it was played.
     """
-    stored = _stored_properties(event)
-    if entity_id not in (stored.get("home_team_id"), stored.get("away_team_id")):
+    if not _belongs_to(event, entity_id):
         return False
-    game_id = stored.get("game_id")
+    game_id = _stored_properties(event).get("game_id")
     if not game_id or game_id in game_ids:
         return False
     start = event.get("start", {}).get("dateTime", "")
     return not start or datetime.fromisoformat(start).astimezone() > now
+
+
+def _belongs_to(event: dict, entity_id: str) -> bool:
+    """True when the entity plays one of the event's sides; another entity that shares the calendar owns the rest."""
+    stored = _stored_properties(event)
+    return entity_id in (stored.get("home_team_id"), stored.get("away_team_id"))
 
 
 def _count_kept(events: list[dict], game_ids: set[str]) -> int:
@@ -185,7 +205,7 @@ class _CalendarWriter:
             created_event = _execute_with_retry(self._events.insert(
                 calendarId=self._calendar_id,
                 body=_build_event_body(game, self._time_zone, self._updated_at)
-            ), self._clock)
+            ), self._clock, retry_server_errors=False)  # after a 5xx the event may exist already: the next fetch sees it
         except HttpError as error:
             logger.error(f"Could not create event '{sanitize_for_log(_build_summary(game))}': {error}")
             return False
@@ -212,14 +232,14 @@ class _CalendarWriter:
         logger.info(f'Event updated: {sanitize_for_log(str(updated_event.get("summary", "")))} | {sanitize_for_log(str(updated_event.get("htmlLink", "")))}')
         return True
 
-    def delete(self, event: dict) -> bool:
+    def delete(self, event: dict, kind: str = "cancelled/orphaned") -> bool:
         """Delete an event. Returns False, after logging the error, when the Calendar refuses it."""
         try:
             _execute_with_retry(self._events.delete(calendarId=self._calendar_id, eventId=event["id"]), self._clock)
         except HttpError as error:
             logger.error(f"Error deleting event '{sanitize_for_log(event.get('summary', ''))}': {error}")
             return False
-        logger.info(f"Deleted cancelled/orphaned event: '{sanitize_for_log(event.get('summary', ''))}'")
+        logger.info(f"Deleted {kind} event: '{sanitize_for_log(event.get('summary', ''))}'")
         return True
 
 
@@ -243,9 +263,9 @@ def _create_or_update(writer: _CalendarWriter, game_list: list[Match], existing_
     return created, updated, failed
 
 
-def _delete_orphans(writer: _CalendarWriter, events: list[dict], entity_id: str, game_ids: set[str], now: datetime) -> tuple[int, int]:
-    """Delete this entity's orphaned events (see _is_orphan); return (deleted, failed)."""
-    results = [writer.delete(event) for event in events if _is_orphan(event, entity_id, game_ids, now)]
+def _delete_each(writer: _CalendarWriter, events: list[dict], kind: str) -> tuple[int, int]:
+    """Delete each event; return (deleted, failed)."""
+    results = [writer.delete(event, kind) for event in events]
     return results.count(True), results.count(False)
 
 
@@ -256,9 +276,11 @@ def update_events(service: Resource, calendar_id: str, game_list: list[Match], t
     now = clock.now()
     writer = _CalendarWriter(service, calendar_id, time_zone, updated_at=now.astimezone(), clock=clock)  # local time, for the description
     logger.debug("Updating calendar: looking up future events...")
-    events = writer.list_events(_lookback_start(now))
+    events, copies = _split_copies(writer.list_events(_lookback_start(now)))
     created, updated, failed_writes = _create_or_update(writer, game_list, _index_by_game_id(events))
     game_ids = {str(game.game_id) for game in game_list}
-    deleted, failed_deletes = _delete_orphans(writer, events, entity_id, game_ids, now)
-    return SyncResult(_count_kept(events, game_ids) + created, created=created, updated=updated, deleted=deleted,
-                      failed=failed_writes + failed_deletes)
+    orphans = [event for event in events if _is_orphan(event, entity_id, game_ids, now)]
+    deleted_orphans, failed_orphans = _delete_each(writer, orphans, "cancelled/orphaned")
+    deleted_copies, failed_copies = _delete_each(writer, [copy for copy in copies if _belongs_to(copy, entity_id)], "duplicate")
+    return SyncResult(_count_kept(events, game_ids) + created, created=created, updated=updated,
+                      deleted=deleted_orphans + deleted_copies, failed=failed_writes + failed_orphans + failed_copies)
