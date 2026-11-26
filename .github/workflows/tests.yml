@@ -21,7 +21,8 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies from the lock file
-        run: uv sync --frozen  # the Python version comes from .python-version
+        # --locked fails on a uv.lock that does not match pyproject.toml, as the deploy does; the Python version comes from .python-version
+        run: uv sync --locked
 
       - name: Run tests
         run: uv run pytest -q  # no .env in CI: the tests pass fakes, so they need no secrets
