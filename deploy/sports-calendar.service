@@ -11,6 +11,11 @@ Wants=network-online.target
 # and `systemctl start` returns only when the run ends (with an error when the run fails).
 Type=oneshot
 User=ubuntu
+# User=ubuntu has passwordless sudo: NoNewPrivileges blocks sudo, and any setuid program, for the run.
+# PrivateTmp gives the run its own /tmp, and ProtectSystem=full makes /usr, /boot and /etc read-only for it.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
 # The service's data (the two databases, queries.json, token.json and .env) lives in /var/lib/sports-calendar,
 # outside the git checkout, so a git reset or git clean there cannot touch it. systemd creates the folder for
 # User= at each start, keeps it when the unit stops, and sets its mode to 0700, because it holds secrets.

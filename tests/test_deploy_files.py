@@ -4,6 +4,8 @@ import re
 import shlex
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 DEPLOY = ROOT / "deploy"
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
@@ -139,3 +141,11 @@ def test_the_deploy_accepts_only_the_vm_host_keys_in_the_repo():
     assert config["UserKnownHostsFile"] == "$GITHUB_WORKSPACE/deploy/known_hosts"
     assert hosts == {config["HostKeyAlias"]}
     assert all("actions/checkout@" in line for line in deploy_lines() if line.startswith("- uses:"))
+
+
+@pytest.mark.parametrize("name", ["sports-calendar.service", "sports-calendar-summary.service"])
+def test_units_cannot_gain_privileges_or_write_the_system(name):
+    """User=ubuntu has passwordless sudo on the VM, so without NoNewPrivileges code in a run could become root."""
+    service = read_unit(name)["Service"]
+
+    assert (service.get("NoNewPrivileges"), service.get("PrivateTmp"), service.get("ProtectSystem")) == ("yes", "yes", "full")
