@@ -92,7 +92,7 @@ def _to_match(event: Event, sport: str, time_zone: str) -> Match:
     return Match(
         side_one=event.homeTeam.name,
         side_two=event.awayTeam.name,
-        tournament=event.season.name,
+        season=event.season.name,
         stage=_stage_name(event.roundInfo, event.tournament.name),
         game_id=event.id,
         sport=sport,

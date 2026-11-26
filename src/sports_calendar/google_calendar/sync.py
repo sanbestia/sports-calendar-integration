@@ -57,8 +57,8 @@ def _execute_with_retry(request, clock: Clock, retry_server_errors: bool = True)
 
 
 def _build_summary(game: Match) -> str:
-    """Build the event title: '<icon> <side one> vs <side two> - <tournament> (<stage>)'."""
-    return f'{ICONS.get(game.sport, DEFAULT_ICON)} {game.side_one} vs {game.side_two} - {game.tournament} ({game.stage})'
+    """Build the event title: '<icon> <side one> vs <side two> - <season> (<stage>)'."""
+    return f'{ICONS.get(game.sport, DEFAULT_ICON)} {game.side_one} vs {game.side_two} - {game.season} ({game.stage})'
 
 
 def _private_properties(game: Match) -> dict[str, str]:
@@ -143,7 +143,7 @@ def _index_by_game_id(events: list[dict]) -> dict[str, dict]:
 def _needs_update(event: dict, game: Match) -> bool:
     """True when the stored details or the title differ from the match.
 
-    The stored details catch a reschedule or a team change; the title catches a renamed tournament or stage,
+    The stored details catch a reschedule or a team change; the title catches a renamed season or stage,
     which are not stored as private properties. The Calendar's own start time is not compared.
     """
     return _stored_properties(event) != _private_properties(game) or event.get("summary") != _build_summary(game)

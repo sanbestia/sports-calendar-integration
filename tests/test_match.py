@@ -7,12 +7,12 @@ from sports_calendar.match import Match
 START_TIME = datetime.datetime(2025, 6, 15, 14, 0, 0, tzinfo=datetime.timezone.utc)
 
 
-def make_match(sport="football", tournament="Some League", **kwargs):
+def make_match(sport="football", season="Some League", **kwargs):
     """Helper to create a Match with sensible defaults, overridable via kwargs."""
     return Match(
         side_one="Team A",
         side_two="Team B",
-        tournament=tournament,
+        season=season,
         stage="Round 1",
         game_id=1,
         sport=sport,
@@ -38,13 +38,13 @@ def test_expected_end_time_default():
 
 
 def test_expected_end_time_tennis():
-    match = make_match(sport="tennis", tournament="ATP 500")
+    match = make_match(sport="tennis", season="ATP 500")
     assert match.expected_end_time == START_TIME + datetime.timedelta(hours=3)
 
 
 def test_expected_end_time_grand_slam():
     for grand_slam in ["US Open", "Wimbledon", "Australian Open", "French Open"]:
-        match = make_match(sport="tennis", tournament=grand_slam)
+        match = make_match(sport="tennis", season=grand_slam)
         assert match.expected_end_time == START_TIME + datetime.timedelta(hours=5), \
             f"Failed for {grand_slam}"
 
@@ -65,6 +65,6 @@ def test_expected_end_time_non_tennis_non_esport_uses_default():
 def test_expected_end_time_grand_slam_with_year_in_name():
     """Grand Slam detection works when the year or extra text is appended to the tournament name."""
     for tournament in ["Wimbledon 2026", "US Open 2026", "Australian Open 2026", "French Open 2026"]:
-        match = make_match(sport="tennis", tournament=tournament)
+        match = make_match(sport="tennis", season=tournament)
         assert match.expected_end_time == START_TIME + datetime.timedelta(hours=5), \
             f"Failed for tournament: {tournament}"
