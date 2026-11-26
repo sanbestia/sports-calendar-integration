@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEPLOY = ROOT / "deploy"
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
+TESTS_WORKFLOW = ROOT / ".github" / "workflows" / "tests.yml"
 INSTALL_LINE_START = "sudo install -m 644 "
 
 
@@ -17,6 +18,12 @@ def read_unit(name: str) -> configparser.ConfigParser:
 
 def deploy_lines() -> list[str]:
     return [line.strip() for line in DEPLOY_WORKFLOW.read_text().splitlines()]
+
+
+def uv_sync_flags(workflow: Path) -> set[str]:
+    """The words of the one `uv sync` command in a workflow, without its comment."""
+    (command,) = [line.split("#")[0] for line in workflow.read_text().splitlines() if "uv sync" in line.split("#")[0]]
+    return set(command.split())
 
 
 def test_unit_signals_only_the_main_process_on_stop():
@@ -105,6 +112,13 @@ def test_deploy_steps_run_in_order():
     positions = [lines.index(step) for step in steps]
 
     assert positions == sorted(positions)
+
+
+def test_ci_checks_the_lock_file_like_the_deploy():
+    """With --frozen, CI installs a stale uv.lock and passes; only the deploy's --locked install fails, after the merge."""
+    lock_checks = {"--locked", "--frozen"}
+
+    assert uv_sync_flags(TESTS_WORKFLOW) & lock_checks == uv_sync_flags(DEPLOY_WORKFLOW) & lock_checks == {"--locked"}
 
 
 def test_each_deploy_script_stops_at_the_first_failed_command():
