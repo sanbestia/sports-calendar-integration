@@ -9,6 +9,7 @@ from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+from sports_calendar.files import write_atomically
 from sports_calendar.logs import configure_logging
 
 # If modifying these scopes, delete the file token.json.
@@ -44,9 +45,16 @@ class GoogleAuth:
 
 
 def _save(creds: Credentials, token_path: str) -> None:
-    """Write the credentials to the token file, for the next start."""
-    with open(token_path, "w") as token:
-        token.write(creds.to_json())
+    """Write the credentials to the token file, for the next start; a crash mid-write keeps the old file."""
+    write_atomically(token_path, creds.to_json())
+
+
+def _load(auth: GoogleAuth, token_path: str) -> Credentials:
+    """Read the token file. An empty, cut or incomplete file asks for a login, as a refused token does."""
+    try:
+        return auth.load(token_path)
+    except ValueError as e:  # json.JSONDecodeError, or the library's "not in the expected format" (field names only)
+        raise LoginRequired(f"the token file cannot be read ({token_path}): {e}") from e
 
 
 def check_calendar_tokens(token_path: str = "token.json", auth: GoogleAuth | None = None) -> Credentials:
@@ -59,7 +67,7 @@ def check_calendar_tokens(token_path: str = "token.json", auth: GoogleAuth | Non
     logger.debug("Checking tokens...")
     if not os.path.exists(token_path):
         raise LoginRequired(f"no token file ({token_path})")
-    creds = auth.load(token_path)
+    creds = _load(auth, token_path)
     if creds.valid:
         logger.debug("Available tokens are valid")
         return creds

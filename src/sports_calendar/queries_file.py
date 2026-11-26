@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from sports_calendar.files import write_atomically
+
 
 class QueryEntry(BaseModel):
     """One entry as queries.json holds it. `calendar` is the name of the env variable that holds the calendar ID."""
@@ -112,8 +114,4 @@ def _check_not_tracked(queries: Mapping[str, dict], path: str, name: str, entity
 
 
 def _write_queries(path: str, queries: Mapping[str, dict]) -> None:
-    """Write the entries through a temporary file: a crash mid-write leaves the old file, never half a file."""
-    temporary = f"{path}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(json.dumps(queries, indent=4, ensure_ascii=False))
-    os.replace(temporary, path)
+    write_atomically(path, json.dumps(queries, indent=4, ensure_ascii=False))

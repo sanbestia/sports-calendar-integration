@@ -213,7 +213,7 @@ Without `HEALTHCHECK_URL` the heartbeat is off. Anyone who has the ping URL can 
 
 ### Renewing the Google login
 
-The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), the service logs an ERROR that starts with `Google Calendar login needed`, sends a fail ping, and the run ends as failed. The timer starts the next run within 15 minutes, and each run checks the token again. To renew the token:
+The service refreshes its Google token by itself. When Google refuses the token (for example after you remove the app's access in your Google account, or after 7 days when the app is still in **Testing**), or when `token.json` is empty, cut or incomplete, the service logs an ERROR that starts with `Google Calendar login needed`, sends a fail ping, and the run ends as failed. The timer starts the next run within 15 minutes, and each run checks the token again. To renew the token:
 
 1. On a computer with a browser, in the repo folder with your `credentials.json`, run `uv run google-login`. When the stored token does not work, a browser window opens for the login, and a new `token.json` is saved.
 2. Copy it to the server: `scp token.json ubuntu@<server>:/var/lib/sports-calendar/token.json`.

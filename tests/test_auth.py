@@ -77,6 +77,19 @@ def test_no_token_file_asks_for_a_login(paths):
     assert auth.loaded == [] and auth.flows == []
 
 
+@pytest.mark.parametrize("content", [
+    "",  # a save that stopped before it wrote anything
+    '{"token": "x", "refresh_tok',  # a save that stopped midway
+    '{"token": "x"}',  # no refresh token, client id or client secret
+])
+def test_a_token_file_that_cannot_be_read_asks_for_a_login(paths, content):
+    """The fix is the same as for a refused token: a new login. Google's own loader reads the file here."""
+    Path(paths["token_path"]).write_text(content)
+
+    with pytest.raises(LoginRequired, match="cannot be read"):
+        check_calendar_tokens(paths["token_path"])
+
+
 def test_a_token_without_a_refresh_token_asks_for_a_login(paths):
     """Credentials that are not valid and cannot be refreshed need a new login."""
     Path(paths["token_path"]).write_text("stored")
