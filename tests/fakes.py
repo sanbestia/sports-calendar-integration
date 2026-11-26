@@ -45,9 +45,10 @@ class ScriptedInput:
 class FakeResponse:
     """The part of requests.Response that the client reads."""
 
-    def __init__(self, text: str, status_code: int = 200):
+    def __init__(self, text: str, status_code: int = 200, headers: dict[str, str] | None = None):
         self.text = text
         self.status_code = status_code
+        self.headers = headers or {}
 
 
 class FakeSession:

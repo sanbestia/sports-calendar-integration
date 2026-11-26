@@ -156,3 +156,24 @@ def test_calls_on_returns_the_stored_count_of_an_earlier_day():
     assert tracker.calls_on(yesterday) == 3
     assert tracker.calls_on(clock.today()) == 1
     assert tracker.calls_on(yesterday.replace(year=2000)) == 0
+
+
+def test_two_trackers_on_one_database_lose_no_call(tmp_path):
+    """A tool run on the VM during a run must not overwrite the run's count with its own."""
+    db_path = str(tmp_path / "api_calls.db")
+    first, second = make_tracker(db_path), make_tracker(db_path)
+
+    first.increment()
+    second.increment()
+
+    assert make_tracker(db_path).count == 2
+
+
+def test_a_higher_count_from_the_api_replaces_the_local_one():
+    """RapidAPI counts calls that this tracker never saw (the local tools, a timed-out request)."""
+    tracker = make_tracker()
+
+    tracker.increment(reported_used=40)
+    tracker.increment(reported_used=10)
+
+    assert tracker.calls_on(tracker.current_date) == 41

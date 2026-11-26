@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://allsportsapi2.p.rapidapi.com/api/"
 _HOST = "allsportsapi2.p.rapidapi.com"
 _TIMEOUT_SECONDS = 10
+_LIMIT_HEADER = "x-ratelimit-requests-limit"  # RapidAPI's daily quota, sent with each answer
+_REMAINING_HEADER = "x-ratelimit-requests-remaining"
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 
@@ -54,11 +56,25 @@ class AllSportsClient:
         """Send the GET, count it, and return the body of a 2xx answer. A request that never reached the API is not counted."""
         try:
             response = self._session.get(BASE_URL + path, headers=self._headers, timeout=_TIMEOUT_SECONDS)
+        except requests.exceptions.ReadTimeout as e:  # the request reached the API, which counts it
+            self._count()
+            raise AllSportsError(f"Couldn't communicate with sports API ({path}): {e}") from e
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             raise AllSportsError(f"Couldn't communicate with sports API ({path}): {e}") from e
-        self._tracker.increment()
-        self.calls_made += 1
+        self._count(_reported_used(response.headers))
         return _successful_body(response, path)
+
+    def _count(self, reported_used: int = 0) -> None:
+        self._tracker.increment(reported_used)
+        self.calls_made += 1
+
+
+def _reported_used(headers) -> int:
+    """The day's calls that RapidAPI reports (limit minus remaining), or 0 when a header is missing or not a number."""
+    try:
+        return int(headers[_LIMIT_HEADER]) - int(headers[_REMAINING_HEADER])
+    except (KeyError, ValueError, TypeError):
+        return 0
 
 
 def _successful_body(response: requests.Response, path: str) -> str:
