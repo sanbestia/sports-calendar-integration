@@ -134,3 +134,16 @@ def test_empty_string_returns_empty():
 def test_string_with_unicode_passes_through():
     """Unicode characters in team names are preserved."""
     assert sanitize_for_log("Atlético de Madrid") == "Atlético de Madrid"
+
+
+@pytest.mark.parametrize("raw", [
+    "A\x1b]0;title\x07B",  # OSC: sets the terminal title
+    "A\x1b]8;;http://example.com\x1b\\B",  # OSC hyperlink, ended by ST
+    "A\x1b[?25lB",  # CSI with a private parameter: hides the cursor
+    "A\x9b31mB",  # 8-bit CSI
+    "A\x08B", "A\x00B", "A\x0bB", "A\x85B", "A B",  # backspace, NUL, vertical tab, NEL, line separator
+])
+def test_removes_every_escape_sequence_and_control_character(raw):
+    """A string from outside must not color, hide, rewrite or split a log line."""
+    assert sanitize_for_log(raw).replace(" ", "") == "AB"
+

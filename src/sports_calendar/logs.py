@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sys
+import unicodedata
 from collections.abc import Mapping
 from typing import TextIO
 
@@ -46,12 +47,18 @@ def configure_logging(env: Mapping[str, str] = os.environ, stream: TextIO | None
     logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)  # suppress the verbose 'file_cache unavailable' warning emitted by the Google client
 
 
-def sanitize_for_log(value: str) -> str:
-    """Strip ANSI escape codes and normalize newlines from external strings before logging.
+# CSI (7-bit and 8-bit), OSC up to BEL or ST, and the other two-character escapes; CSI and OSC first, as ESC [ and
+# ESC ] would also match the last part
+_ESCAPE_SEQUENCE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x9b[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]")
+_LINE_BREAKING = {"Cc", "Zl", "Zp"}  # control characters, line and paragraph separators
 
-    Prevents log injection from malicious or malformed API responses containing
-    escape sequences or embedded newlines that could spoof log entries.
+
+def sanitize_for_log(value: str) -> str:
+    """Remove terminal escape sequences, and turn every other control character or line break into a space.
+
+    A string from an outside source (an API answer, an event title) can then neither color, hide, rewrite nor
+    split a log line, so it cannot spoof another entry.
     """
-    value = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', value)  # ANSI escape codes
-    value = value.replace('\n', ' ').replace('\r', ' ')
+    value = _ESCAPE_SEQUENCE.sub("", value)
+    value = "".join(" " if unicodedata.category(char) in _LINE_BREAKING else char for char in value)
     return value.strip()

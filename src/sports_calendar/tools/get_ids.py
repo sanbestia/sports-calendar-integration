@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from sports_calendar.allsports.client import AllSportsClient
 from sports_calendar.allsports.search import search_entity
-from sports_calendar.logs import configure_logging
+from sports_calendar.logs import configure_logging, sanitize_for_log
 from sports_calendar.storage.api_calls import APICallTracker
 from sports_calendar.tools.prompts import ask_non_empty, ask_yes_no
 
@@ -26,7 +26,7 @@ def pick_entity(hits: list[dict], ask: Callable[[str], str] = input) -> dict | N
         for i, hit in enumerate(hits):
             gender = f" ({hit['gender']})" if hit['gender'] else ""
             player_type = hit['player_type'].capitalize()
-            logger.info(f"  {i + 1}: {hit['name']}{gender} - {player_type}")
+            logger.info(f"  {i + 1}: {sanitize_for_log(hit['name'])}{gender} - {player_type}")
 
         while True:
             try:
@@ -81,7 +81,7 @@ def _log_results(results: dict[str, dict[str, str]]) -> None:
         return
     logger.info("\n--- Results ---")
     for entity_id, data in results.items():
-        logger.info(f"{data['name']} | ID: {entity_id} | Type: {data['player_type']} | Sport: {data['sport']}")
+        logger.info(f"{sanitize_for_log(data['name'])} | ID: {entity_id} | Type: {data['player_type']} | Sport: {data['sport']}")
 
 
 def main() -> None:
