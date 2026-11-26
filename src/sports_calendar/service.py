@@ -111,9 +111,9 @@ def main(argv: list[str] | None = None) -> None:
     main() and _build_and_run() are the only places that read .env, the process environment and the system clock,
     or open real connections; everything below them receives its collaborators.
     """
+    load_dotenv(".env")  # the working directory's .env: the state folder on the server, the repo root locally; first, for LOG_LEVEL
     configure_logging()
     install_stop_handler()
-    load_dotenv(".env")  # the working directory's .env: the state folder on the server, the repo root locally
 
     parser = argparse.ArgumentParser(description="Sports Calendar Integration")
     parser.add_argument(
