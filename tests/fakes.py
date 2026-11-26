@@ -1,9 +1,10 @@
 """Small fakes that tests pass in through dependency injection, instead of patching module globals."""
 import json
 from datetime import date, datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, create_autospec
 
 from sports_calendar.allsports.client import AllSportsClient
+from sports_calendar.storage.api_calls import APICallTracker
 
 
 class FakeClock:
@@ -101,9 +102,14 @@ class FakePost:
         return FakePostResponse(self.status_code)
 
 
+def mock_tracker() -> MagicMock:
+    """A call tracker mock with the real methods, below its daily limit (a bare MagicMock would answer "limit reached")."""
+    return create_autospec(APICallTracker, instance=True, daily_limit=100, **{"is_limit_reached.return_value": False})
+
+
 def make_client(session: FakeSession, tracker=None) -> AllSportsClient:
     """An AllSportsClient with a fake key, the given fake session, and a mock call tracker by default."""
-    return AllSportsClient(api_key="test-key", tracker=tracker if tracker is not None else MagicMock(), session=session)
+    return AllSportsClient(api_key="test-key", tracker=tracker if tracker is not None else mock_tracker(), session=session)
 
 
 class FakeAuth:

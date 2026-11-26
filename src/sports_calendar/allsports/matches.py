@@ -9,6 +9,8 @@ from sports_calendar.logs import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
+_MAX_PAGES = 10  # a full NBA season is 3 pages; a next page that never ends would spend the day's calls
+
 
 def _build_api_path(sport: str, player_type: str, entity_id: str, endpoint: str, page: int | None = None) -> str:
     """Build an AllSports API path (the part after the base URL) for the given sport, entity, and endpoint."""
@@ -46,6 +48,8 @@ def _fetch_events(client: AllSportsClient, sport: str, player_type: str, entity_
         if not parsed.hasNextPage:
             break
         page += 1
+        if page == _MAX_PAGES:  # a cut list would make the sync delete the games past the cap
+            raise AllSportsError(f"More than {_MAX_PAGES} pages of upcoming games")
 
     if events:
         return events

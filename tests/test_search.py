@@ -1,8 +1,7 @@
 import json
 import pytest
 import requests
-from unittest.mock import MagicMock
-from tests.fakes import FakeSession, make_client
+from tests.fakes import FakeSession, make_client, mock_tracker as fake_tracker
 
 INVALID_JSON = "<html>Internal Server Error</html>"
 from sports_calendar.allsports.search import search_entity
@@ -136,7 +135,7 @@ def test_search_entity_returns_empty_list_on_timeout():
 
 def test_search_entity_increments_tracker():
     """Increments the tracker on a successful request."""
-    mock_tracker = MagicMock()
+    mock_tracker = fake_tracker()
     session = FakeSession(FAKE_TEAM_ENTITY)
     search_entity(make_client(session, mock_tracker), "spurs", "basketball")
 
@@ -145,7 +144,7 @@ def test_search_entity_increments_tracker():
 
 def test_search_entity_does_not_increment_tracker_on_error():
     """Does not increment the tracker when a network error occurs."""
-    mock_tracker = MagicMock()
+    mock_tracker = fake_tracker()
     session = FakeSession(requests.exceptions.ConnectionError)
     search_entity(make_client(session, mock_tracker), "spurs", "basketball")
 

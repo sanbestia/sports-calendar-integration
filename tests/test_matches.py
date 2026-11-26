@@ -2,8 +2,7 @@ import datetime
 import pytest
 import json
 import requests
-from unittest.mock import MagicMock
-from tests.fakes import FakeSession, make_client
+from tests.fakes import FakeSession, make_client, mock_tracker as fake_tracker
 
 INVALID_JSON = "<html>Internal Server Error</html>"
 from sports_calendar.allsports.matches import get_next_matches, _build_api_path
@@ -88,6 +87,16 @@ def test_a_game_listed_on_two_pages_is_one_match():
     result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
     assert [match.game_id for match in result] == ["1"]
+
+
+def test_a_fetch_stops_at_the_page_cap_instead_of_spending_the_day_of_calls():
+    """A full NBA season is 3 pages. A next page that never ends fails the fetch: a cut list would delete the rest."""
+    session = FakeSession(*[FAKE_NEXT_RESPONSE_PAGE_1] * 11)
+
+    result = get_next_matches(make_client(session), "206570", "Jannik Sinner", "player", "tennis", "UTC")
+
+    assert result is None
+    assert len(session.requests) == 10
 
 
 def test_falls_back_to_near_endpoint():
@@ -185,7 +194,7 @@ def test_returns_none_on_invalid_json_from_near_endpoint():
 
 def test_increments_tracker_on_successful_request():
     """Increments the tracker on each successful API call."""
-    mock_tracker = MagicMock()
+    mock_tracker = fake_tracker()
     session = FakeSession(FAKE_NEXT_RESPONSE_SINGLE_PAGE)
     get_next_matches(make_client(session, mock_tracker), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
@@ -194,7 +203,7 @@ def test_increments_tracker_on_successful_request():
 
 def test_does_not_increment_tracker_on_connection_error():
     """Does not increment tracker when a network error occurs."""
-    mock_tracker = MagicMock()
+    mock_tracker = fake_tracker()
     session = FakeSession(requests.exceptions.ConnectionError)
     get_next_matches(make_client(session, mock_tracker), "206570", "Jannik Sinner", "player", "tennis", "UTC")
 
@@ -272,7 +281,7 @@ def test_near_endpoint_accepts_a_list_of_events():
 
 def test_counts_one_api_call_per_request():
     """Each page and the 'near' fallback count as one API call each."""
-    paged_tracker, fallback_tracker = MagicMock(), MagicMock()
+    paged_tracker, fallback_tracker = fake_tracker(), fake_tracker()
     session = FakeSession(FAKE_NEXT_RESPONSE_PAGE_1, FAKE_NEXT_RESPONSE_PAGE_2)
     get_next_matches(make_client(session, paged_tracker), "206570", "Jannik Sinner", "player", "tennis", "UTC")
     session = FakeSession("", FAKE_NEAR_RESPONSE)
