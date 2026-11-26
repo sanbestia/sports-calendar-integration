@@ -123,7 +123,7 @@ The AllSports free tier allows 100 calls per day (`MAX_API_CALLS`, a hard limit)
 
 On first run, the program automatically creates two SQLite database files in the working directory: `api_calls.db` to track your daily API usage, and `fetch_log.db` to remember when each team was last fetched. `fetch_log.db` also holds `fetch_history`, one row per fetch: when, which team, the result (`matches`, `empty` or `failed`), the API calls it used, the matches found, the events created, updated and deleted, and a short error text. These are managed automatically and you don't need to touch them.
 
-On the server, the units set the working directory to `/var/lib/sports-calendar` (systemd `StateDirectory=`, mode 0700). That folder holds the two databases, `queries.json`, `token.json` and `.env`, outside the git checkout, so a `git reset` or `git clean` in the checkout cannot delete the data or the secrets. To query the databases there, run `cd /var/lib/sports-calendar && uv run --project /home/ubuntu/sports_calendar_integration db-stats <function>`.
+On the server, the units set the working directory to `/var/lib/sports-calendar` (systemd `StateDirectory=`, mode 0700). That folder holds the two databases, `queries.json`, `token.json` and `.env`, outside the git checkout, so a `git reset` or `git clean` in the checkout cannot delete the data or the secrets. To query the databases there, run `cd /var/lib/sports-calendar && uv run --project /home/ubuntu/sports-calendar-integration db-stats <function>`.
 
 ---
 

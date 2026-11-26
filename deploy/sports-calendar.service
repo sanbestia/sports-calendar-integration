@@ -26,7 +26,7 @@ WorkingDirectory=/var/lib/sports-calendar
 # packages with `uv sync --locked --no-dev`, so this start only checks them.
 # --project: the code is in the git checkout, and the working directory is the state folder.
 # --locked: a uv.lock that does not match pyproject.toml stops the run; without it uv rewrites the lock by itself.
-ExecStart=/home/ubuntu/.local/bin/uv run --locked --project /home/ubuntu/sports_calendar_integration --no-dev sports-calendar --queries queries.json
+ExecStart=/home/ubuntu/.local/bin/uv run --locked --project /home/ubuntu/sports-calendar-integration --no-dev sports-calendar --queries queries.json
 # A oneshot has no start timeout by default; a run that hangs would then block every later run. A normal run
 # takes seconds.
 TimeoutStartSec=5min

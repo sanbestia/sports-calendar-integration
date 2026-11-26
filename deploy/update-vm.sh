@@ -4,7 +4,7 @@
 # queries.json and the timers, so a failed deploy leaves the VM as it was, and the job still fails.
 set -Eeuo pipefail
 
-CHECKOUT=${CHECKOUT:-/home/ubuntu/sports_calendar_integration}
+CHECKOUT=${CHECKOUT:-/home/ubuntu/sports-calendar-integration}
 STATE=${STATE:-/var/lib/sports-calendar}  # the units' StateDirectory=
 UV=${UV:-/home/ubuntu/.local/bin/uv}
 CHECK_QUERIES='import json, sys; from sports_calendar.queries_file import parse_queries; parse_queries(json.load(open(sys.argv[1], encoding="utf-8")))'
