@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:  # deploy by hand (Actions → "Deploy to Oracle VM" → Run workflow), e.g. after changing the QUERIES_JSON_B64 secret
 
+# One deploy at a time: a second one (another merge, or push-queries) waits until the first ends.
+concurrency:
+  group: deploy-oracle-vm
+  cancel-in-progress: false
+
 jobs:
   test:
     uses: ./.github/workflows/tests.yml
@@ -16,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     # System packages are not upgraded here: unattended-upgrades on the VM installs security updates daily.
     steps:
-      - uses: actions/checkout@v4  # for deploy/known_hosts
+      - uses: actions/checkout@v4  # for deploy/known_hosts and deploy/update-vm.sh
 
       - name: Set up SSH to the VM
         env:
@@ -32,35 +37,10 @@ jobs:
             "  HostKeyAlias sports-calendar-vm" "  UserKnownHostsFile $GITHUB_WORKSPACE/deploy/known_hosts" \
             "  GlobalKnownHostsFile /dev/null" "  StrictHostKeyChecking yes" "  ConnectTimeout 30" > ~/.ssh/config
 
-      - name: Write queries.json to VM
+      - name: Update the VM
         env:
           QUERIES_JSON_B64: ${{ secrets.QUERIES_JSON_B64 }}
-        # unquoted SCRIPT: the runner puts the secret into the script, which reaches the VM on stdin, not on a command line
+        # The script reaches the VM on stdin, after a line that sets the secret, so the secret is never on a command line.
+        # On any error it puts back the previous commit, packages, queries.json and timers (deploy/update-vm.sh).
         run: |
-          ssh vm bash -s <<SCRIPT
-            set -e
-            # the state folder of the units (StateDirectory=); systemd creates it at the first start, but this step runs before
-            sudo install -d -o ubuntu -g ubuntu -m 700 /var/lib/sports-calendar
-            echo "$QUERIES_JSON_B64" | base64 -d > /var/lib/sports-calendar/queries.json
-          SCRIPT
-
-      - name: Deploy to VM
-        run: |
-          ssh vm bash -s <<'SCRIPT'
-            # stop at the first failed command, so the job fails at that command and skips the steps after it
-            set -e
-            cd /home/ubuntu/sports_calendar_integration
-            git fetch origin main
-            git reset --hard origin/main
-            # install the packages here, not at the service start; --locked fails on a uv.lock that does not match pyproject.toml
-            /home/ubuntu/.local/bin/uv sync --locked --no-dev
-            # stop a run that is in progress before its unit changes (before the timer, this stopped the forever loop)
-            sudo systemctl stop sports-calendar.service
-            sudo install -m 644 deploy/sports-calendar.service deploy/sports-calendar.timer deploy/sports-calendar-summary.service deploy/sports-calendar-summary.timer /etc/systemd/system/
-            sudo systemctl daemon-reload
-            # remove the boot link of the service from before the timer; the timer starts each run now (no-op after the first time)
-            sudo systemctl disable sports-calendar.service
-            sudo systemctl enable --now sports-calendar.timer sports-calendar-summary.timer
-            # one run now, which waits for the run to end: a run that fails also fails this job
-            sudo systemctl start sports-calendar.service
-          SCRIPT
+          { printf "QUERIES_JSON_B64='%s'\n" "$QUERIES_JSON_B64"; cat deploy/update-vm.sh; } | ssh vm bash -s

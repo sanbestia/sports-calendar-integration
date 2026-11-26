@@ -152,6 +152,12 @@ def test_load_queries_refuses_a_bad_value_and_names_its_entry_and_field(tmp_path
         load_queries(write_queries(tmp_path, bad), FAKE_ENV)
 
 
+def test_load_queries_refuses_a_file_with_no_entries(tmp_path):
+    """A run with nothing to track would pass as healthy, so an empty file is a missing input, not an empty schedule."""
+    with pytest.raises(ValueError, match="no entries"):
+        load_queries(write_queries(tmp_path, {}), FAKE_ENV)
+
+
 def test_load_queries_raises_when_the_file_is_missing(tmp_path):
     """Unlike read_queries (add_entity starts a new file), a run must not pass as fine with nothing to track."""
     with pytest.raises(FileNotFoundError):

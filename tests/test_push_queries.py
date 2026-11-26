@@ -84,6 +84,16 @@ def test_refuses_a_bad_value_before_sending_anything(tmp_path):
     assert run.commands == []
 
 
+def test_refuses_a_file_with_no_entries_before_sending_anything(tmp_path):
+    path = tmp_path / "queries.json"
+    path.write_text("{}")
+    run = FakeRun()
+
+    with pytest.raises(ValueError, match="no entries"):
+        push_queries(str(path), repo="owner/repo", env={}, run=run)
+    assert run.commands == []
+
+
 def test_a_failed_secret_update_does_not_start_a_deploy(queries_path):
     run = FakeRun(fail_on="secret")
 
