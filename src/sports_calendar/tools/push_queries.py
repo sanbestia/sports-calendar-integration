@@ -11,6 +11,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 
 from sports_calendar.logs import configure_logging
+from sports_calendar.queries_file import parse_queries
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +24,10 @@ def push_queries(path: str = "queries.json", repo: str = REPO, account: str | No
     """Set the secret from the file at path, then start deploy.yml on main.
 
     gh runs as `account` (the repo owner by default), not as gh's active account, which on this machine
-    may be a different one. Raises ValueError for a file that is not valid JSON, before anything is sent,
+    may be a different one. Raises ValueError for a file that is not valid JSON or has a bad entry, before anything is sent,
     and CalledProcessError when a gh command fails.
     """
-    content = _read_valid_json(path)
+    content = _read_valid_queries(path)
     gh_env = _env_with_token(account or repo.split("/")[0], env, run)
     run(["gh", "secret", "set", SECRET, "--repo", repo], input=base64.b64encode(content).decode(), text=True,
         check=True, env=gh_env)
@@ -34,11 +35,12 @@ def push_queries(path: str = "queries.json", repo: str = REPO, account: str | No
     logger.info(f"Updated {SECRET} and started the deploy of main. Follow it with: gh run watch --repo {repo}")
 
 
-def _read_valid_json(path: str) -> bytes:
-    """Return the file's bytes; raise ValueError when it is not valid JSON, because the next deploy would install it on the VM."""
+def _read_valid_queries(path: str) -> bytes:
+    """Return the file's bytes; raise ValueError when it is not valid JSON or an entry is bad, because the next deploy
+    would install it on the VM, where every run would stop at it."""
     with open(path, "rb") as f:
         content = f.read()
-    json.loads(content)
+    parse_queries(json.loads(content))
     return content
 
 

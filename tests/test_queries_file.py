@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from sports_calendar.queries_file import QueryError, add_query, calendar_keys, load_queries, read_queries
+from sports_calendar.queries_file import Query, QueryError, add_query, calendar_keys, load_queries, read_queries
 
 EXISTING = {
     "San Antonio Spurs": {"id": "3429", "sport": "basketball", "player_type": "team", "calendar": "CALENDAR_ID_BASKETBALL"},
@@ -113,8 +113,8 @@ def test_load_queries_resolves_env_variables(tmp_path):
     """Resolves calendar env keys to actual IDs from the given environment."""
     result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), FAKE_ENV)
 
-    assert result["San Antonio Spurs"]["calendar"] == "real_basketball_calendar_id"
-    assert result["T1"]["calendar"] == "real_esports_calendar_id"
+    assert result["San Antonio Spurs"].calendar_id == "real_basketball_calendar_id"
+    assert result["T1"].calendar_id == "real_esports_calendar_id"
 
 
 def test_load_queries_raises_when_env_variable_missing(tmp_path):
@@ -127,16 +127,29 @@ def test_load_queries_preserves_other_fields(tmp_path):
     """Preserves id, sport and player_type fields after loading."""
     result = load_queries(write_queries(tmp_path, FAKE_RAW_QUERIES), FAKE_ENV)
 
-    assert result["San Antonio Spurs"]["id"] == "3429"
-    assert result["San Antonio Spurs"]["sport"] == "basketball"
-    assert result["San Antonio Spurs"]["player_type"] == "team"
+    assert result["San Antonio Spurs"] == Query(id="3429", sport="basketball", player_type="team",
+                                                calendar_id="real_basketball_calendar_id")
 
 
 def test_load_queries_raises_when_required_field_missing(tmp_path):
     """Names the query and the missing field when an entry is incomplete."""
     incomplete = {"T1": {"id": "364366", "sport": "esport", "calendar": "CALENDAR_ID_ESPORTS"}}
-    with pytest.raises(ValueError, match="'T1' is missing required fields: player_type"):
+    with pytest.raises(ValueError, match="'T1' is invalid: player_type: Field required"):
         load_queries(write_queries(tmp_path, incomplete), FAKE_ENV)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("id", 3429),  # an int never equals the string ids that events store, so no orphan would ever be deleted
+    ("id", "spurs"),
+    ("sport", ""),
+    ("player_type", "club"),
+    ("calendar", ""),
+])
+def test_load_queries_refuses_a_bad_value_and_names_its_entry_and_field(tmp_path, field, value):
+    bad = {"San Antonio Spurs": {**FAKE_RAW_QUERIES["San Antonio Spurs"], field: value}}
+
+    with pytest.raises(ValueError, match=rf"'San Antonio Spurs'.*{field}"):
+        load_queries(write_queries(tmp_path, bad), FAKE_ENV)
 
 
 def test_load_queries_raises_when_the_file_is_missing(tmp_path):

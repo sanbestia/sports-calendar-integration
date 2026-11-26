@@ -73,6 +73,17 @@ def test_refuses_a_broken_file_before_sending_anything(tmp_path):
     assert run.commands == []
 
 
+def test_refuses_a_bad_value_before_sending_anything(tmp_path):
+    """The deploy would install the file, and every run would then stop at the bad entry."""
+    path = tmp_path / "queries.json"
+    path.write_text(json.dumps({"Los Angeles Lakers": {**QUERIES["Los Angeles Lakers"], "id": 3427}}))
+    run = FakeRun()
+
+    with pytest.raises(ValueError, match="'Los Angeles Lakers'.*id"):
+        push_queries(str(path), repo="owner/repo", env={}, run=run)
+    assert run.commands == []
+
+
 def test_a_failed_secret_update_does_not_start_a_deploy(queries_path):
     run = FakeRun(fail_on="secret")
 

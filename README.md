@@ -155,7 +155,7 @@ To upload `queries.json` and deploy later, or after editing it by hand:
 uv run push-queries
 ```
 
-It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON) and starts the deploy workflow on `main`, which writes the file to the VM and starts a run. It runs `gh` as the repository owner's account, not as `gh`'s active account.
+It sets the `QUERIES_JSON_B64` secret from the file (after checking that it is valid JSON and that each entry is valid, as the service checks it) and starts the deploy workflow on `main`, which writes the file to the VM and starts a run. It runs `gh` as the repository owner's account, not as `gh`'s active account.
 
 ### Running the script
 
@@ -184,7 +184,7 @@ It reads `queries.json`. To read another file, add `--queries <path>`. Each star
 }
 ```
 
-The `calendar` field should match one of the key names defined in your `.env` file. The `player_type` field should be `"player"` for individuals or `"team"` for organizations.
+The `calendar` field should match one of the key names defined in your `.env` file. The `player_type` field should be `"player"` for individuals or `"team"` for organizations. The `id` is a string of digits (`"275923"`, not `275923`), as the calendar events store it. Each run checks every entry when it starts, and a bad entry stops the run with an error that names the entry and the field.
 
 ### Reading the logs
 
