@@ -16,5 +16,5 @@ StateDirectory=sports-calendar
 StateDirectoryMode=0700
 WorkingDirectory=/var/lib/sports-calendar
 # --locked: a uv.lock that does not match pyproject.toml stops the run; without it uv rewrites the lock by itself.
-ExecStart=/home/ubuntu/.local/bin/uv run --locked --project /home/ubuntu/sports_calendar_integration --no-dev sports-calendar-summary
+ExecStart=/home/ubuntu/.local/bin/uv run --locked --project /home/ubuntu/sports-calendar-integration --no-dev sports-calendar-summary
 TimeoutStartSec=5min

@@ -15,7 +15,7 @@ from sports_calendar.queries_file import parse_queries
 
 logger = logging.getLogger(__name__)
 
-REPO = "sanbestia/sports_calendar_integration"
+REPO = "sanbestia/sports-calendar-integration"
 SECRET = "QUERIES_JSON_B64"
 
 
