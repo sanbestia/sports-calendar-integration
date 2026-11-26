@@ -1,6 +1,6 @@
 # Sports Calendar Integration
 
-A Python tool that automatically syncs upcoming sports matches to your Google Calendar. It fetches schedules for your favourite teams and players across multiple sports and keeps your calendar up to date, refreshing every few hours.
+A Python tool that automatically syncs upcoming sports matches to your Google Calendar. It fetches schedules for your favourite teams and players across multiple sports and keeps your calendar up to date: it checks every 15 minutes, and fetches each team or player again from every hour to every two days, by how soon its next match is.
 
 ---
 
