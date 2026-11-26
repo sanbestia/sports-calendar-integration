@@ -1,11 +1,15 @@
 import pytest
 import datetime
-from unittest.mock import MagicMock
-from sports_calendar.google_calendar.sync import SyncResult
+from unittest.mock import MagicMock, create_autospec
+from sports_calendar.allsports.client import AllSportsClient
+from sports_calendar.allsports.matches import get_next_matches
+from sports_calendar.google_calendar.sync import SyncResult, update_events
 from sports_calendar.run import run_cycle, run_once, RunDeps
 from google.auth.exceptions import RefreshError
 from sports_calendar.google_calendar.auth import LoginRequired
 from sports_calendar.heartbeat import Heartbeat
+from sports_calendar.storage.api_calls import APICallTracker
+from sports_calendar.storage.fetch_history import FetchHistory
 from sports_calendar.storage.fetch_tracker import FetchTracker
 from tests.fakes import FakeClock, FakePost
 
@@ -31,26 +35,30 @@ def make_fake_match(start_time: datetime.datetime) -> MagicMock:
 
 
 def make_deps(*, matches=None, fetch_fails=False, sync_side_effect=(1,), limit_reached=False, should_fetch=True) -> RunDeps:
-    """Run dependencies made of mocks and fakes; every collaborator is passed in, nothing is patched."""
-    api_tracker = MagicMock(daily_limit=100)
+    """Run dependencies made of mocks and fakes; every collaborator is passed in, nothing is patched.
+
+    Each mock has the real signature (create_autospec), so a call with a renamed or missing argument fails here too.
+    """
+    api_tracker = create_autospec(APICallTracker, instance=True, daily_limit=100)
     api_tracker.is_limit_reached.return_value = limit_reached
     api_tracker.status.return_value = "API calls today: 1/100"
-    fetch_tracker = MagicMock()
+    fetch_tracker = create_autospec(FetchTracker, instance=True)
     fetch_tracker.should_fetch.return_value = should_fetch
     fetch_tracker.hours_until_next_fetch.return_value = 3.0
     fetch_tracker.fail_streak.return_value = 0
     fetch_tracker.last_result_was_empty.return_value = False  # an empty result is a first one, which does not sync
     sync_results = [SyncResult(event_count=r) if isinstance(r, int) else r for r in sync_side_effect]
     return RunDeps(
-        client=MagicMock(calls_made=0),
+        client=create_autospec(AllSportsClient, instance=True, calls_made=0),
         api_tracker=api_tracker,
         fetch_tracker=fetch_tracker,
-        history=MagicMock(),
+        history=create_autospec(FetchHistory, instance=True),
         calendar_service=MagicMock(),
         clock=FakeClock(),
         tz=datetime.timezone.utc,
-        fetch_matches=MagicMock(return_value=None if fetch_fails else [make_fake_match(EARLY)] if matches is None else matches),
-        sync_events=MagicMock(side_effect=sync_results),
+        fetch_matches=create_autospec(get_next_matches,
+                                      return_value=None if fetch_fails else [make_fake_match(EARLY)] if matches is None else matches),
+        sync_events=create_autospec(update_events, side_effect=sync_results),
     )
 
 
@@ -234,7 +242,7 @@ def test_history_records_the_api_calls_the_fetch_used():
     def fetch_using_three_calls(client, **kwargs):
         client.calls_made += 3
         return [make_fake_match(EARLY)]
-    deps.fetch_matches = MagicMock(side_effect=fetch_using_three_calls)
+    deps.fetch_matches = create_autospec(get_next_matches, side_effect=fetch_using_three_calls)
     run_cycle(ALCARAZ_QUERIES, deps)
 
     assert history_row(deps)["api_calls"] == 3
