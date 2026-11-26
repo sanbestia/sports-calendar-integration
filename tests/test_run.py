@@ -8,6 +8,7 @@ from sports_calendar.run import run_cycle, run_once, RunDeps
 from google.auth.exceptions import RefreshError
 from sports_calendar.google_calendar.auth import LoginRequired
 from sports_calendar.heartbeat import Heartbeat
+from sports_calendar.queries_file import Query
 from sports_calendar.storage.api_calls import APICallTracker
 from sports_calendar.storage.fetch_history import FetchHistory
 from sports_calendar.storage.fetch_tracker import FetchTracker
@@ -16,14 +17,7 @@ from tests.fakes import FakeClock, FakePost
 
 # --- run_cycle / run_once tests ---
 
-ALCARAZ_QUERIES = {
-    "Carlos Alcaraz": {
-        "id": "275923",
-        "sport": "tennis",
-        "player_type": "player",
-        "calendar": "tennis_calendar_id"
-    }
-}
+ALCARAZ_QUERIES = {"Carlos Alcaraz": Query(id="275923", sport="tennis", player_type="player", calendar_id="tennis_calendar_id")}
 EARLY = datetime.datetime(2026, 3, 22, 15, 0, 0)
 LATE = datetime.datetime(2026, 3, 29, 15, 0, 0)
 
@@ -154,7 +148,7 @@ def test_stops_fetching_when_daily_limit_reached():
 
 TWO_ENTITY_QUERIES = {
     **ALCARAZ_QUERIES,
-    "T1": {"id": "364366", "sport": "esport", "player_type": "team", "calendar": "esports_calendar_id"},
+    "T1": Query(id="364366", sport="esport", player_type="team", calendar_id="esports_calendar_id"),
 }
 
 

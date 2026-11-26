@@ -1,7 +1,7 @@
 """One run of the service: fetch and sync each entity that is due, record what happened, and report the run."""
 import datetime
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,6 +13,7 @@ from sports_calendar.google_calendar.auth import TOKEN_ERRORS
 from sports_calendar.google_calendar.sync import SyncResult, update_events
 from sports_calendar.heartbeat import Heartbeat
 from sports_calendar.logs import sanitize_for_log
+from sports_calendar.queries_file import Query
 from sports_calendar.storage.api_calls import APICallTracker
 from sports_calendar.storage.fetch_history import FetchHistory
 from sports_calendar.storage.fetch_tracker import FetchTracker
@@ -45,31 +46,31 @@ class FetchOutcome:
     error: str | None = None
 
 
-def _fetch(deps: RunDeps, name: str, entry: dict) -> list | None:
+def _fetch(deps: RunDeps, name: str, entry: Query) -> list | None:
     """Fetch one entity's upcoming matches; None when the fetch failed (the fetch logs why)."""
     return deps.fetch_matches(
         deps.client,
-        entity_id=entry["id"],
+        entity_id=entry.id,
         entity_name=name,
-        sport=entry["sport"],
-        player_type=entry["player_type"],
+        sport=entry.sport,
+        player_type=entry.player_type,
         time_zone=str(deps.tz)
     )
 
 
-def _sync(deps: RunDeps, entry: dict, matches: list) -> SyncResult:
+def _sync(deps: RunDeps, entry: Query, matches: list) -> SyncResult:
     """Write one entity's matches to its calendar and return what changed."""
     return deps.sync_events(
         service=deps.calendar_service,
-        calendar_id=entry["calendar"],
+        calendar_id=entry.calendar_id,
         game_list=matches,
         time_zone=str(deps.tz),
-        entity_id=entry["id"],
+        entity_id=entry.id,
         clock=deps.clock
     )
 
 
-def _fetch_and_sync(name: str, entry: dict, deps: RunDeps) -> FetchOutcome:
+def _fetch_and_sync(name: str, entry: Query, deps: RunDeps) -> FetchOutcome:
     """Fetch one entity's matches and write them to its calendar. A failed fetch is a failure, not an empty schedule."""
     matches = _fetch(deps, name, entry)
     if matches is None:
@@ -80,7 +81,7 @@ def _fetch_and_sync(name: str, entry: dict, deps: RunDeps) -> FetchOutcome:
                         earliest=min(match.start_time for match in matches))
 
 
-def _empty_outcome(name: str, entry: dict, deps: RunDeps) -> FetchOutcome:
+def _empty_outcome(name: str, entry: Query, deps: RunDeps) -> FetchOutcome:
     """Sync an empty result only when the result before it was empty too: the sync then deletes the entity's
     future events. One empty result is not enough, because the API can return nothing while a match exists."""
     if not deps.fetch_tracker.last_result_was_empty(name):
@@ -88,16 +89,16 @@ def _empty_outcome(name: str, entry: dict, deps: RunDeps) -> FetchOutcome:
     return FetchOutcome("empty", sync=_sync(deps, entry, []))
 
 
-def _record_fetch(deps: RunDeps, name: str, entry: dict, result: FetchOutcome) -> None:
+def _record_fetch(deps: RunDeps, name: str, entry: Query, result: FetchOutcome) -> None:
     """Record the result in the fetch log, which sets when the entity is fetched next (sooner after a failure)."""
     if result.outcome == "failed":
         deps.fetch_tracker.record_failure(name)
         return
     event_count = result.sync.event_count if result.sync else 0
-    deps.fetch_tracker.record_fetch(name, result.earliest, event_count, player_type=entry["player_type"])
+    deps.fetch_tracker.record_fetch(name, result.earliest, event_count, player_type=entry.player_type)
 
 
-def _fetch_sync_and_record(name: str, entry: dict, deps: RunDeps) -> FetchOutcome:
+def _fetch_sync_and_record(name: str, entry: Query, deps: RunDeps) -> FetchOutcome:
     """Fetch, sync and record one entity. An error other than a token error is logged and becomes a failure."""
     try:
         result = _fetch_and_sync(name, entry, deps)
@@ -111,24 +112,24 @@ def _fetch_sync_and_record(name: str, entry: dict, deps: RunDeps) -> FetchOutcom
         return FetchOutcome("failed", error=f"{type(e).__name__}: {e}")
 
 
-def _record_history(deps: RunDeps, name: str, entry: dict, result: FetchOutcome, api_calls: int) -> None:
+def _record_history(deps: RunDeps, name: str, entry: Query, result: FetchOutcome, api_calls: int) -> None:
     """Add the fetch to fetch_history. A failed write is only a warning: it must not turn a good fetch into a failure."""
     sync = result.sync or SyncResult(event_count=0)
     try:
-        deps.history.record(name, entry["player_type"], result.outcome, api_calls=api_calls, matches=result.matches,
+        deps.history.record(name, entry.player_type, result.outcome, api_calls=api_calls, matches=result.matches,
                             created=sync.created, updated=sync.updated, deleted=sync.deleted, error=result.error)
     except Exception as e:
         logger.warning(f"Could not write fetch history for '{name}': {e}")
 
 
-def _process_entity(name: str, entry: dict, deps: RunDeps) -> None:
+def _process_entity(name: str, entry: Query, deps: RunDeps) -> None:
     """Fetch, sync and record one entity, then add it to fetch_history with the API calls it used."""
     calls_before = deps.client.calls_made
     result = _fetch_sync_and_record(name, entry, deps)
     _record_history(deps, name, entry, result, api_calls=deps.client.calls_made - calls_before)
 
 
-def run_cycle(queries: dict, deps: RunDeps) -> int:
+def run_cycle(queries: Mapping[str, Query], deps: RunDeps) -> int:
     """Fetch and sync every entity that is due, once; stop early when the daily API limit is reached.
 
     Returns how many entities were fetched (0 when every entity was skipped).
@@ -152,7 +153,7 @@ def run_cycle(queries: dict, deps: RunDeps) -> int:
     return fetched
 
 
-def failing_entities(queries: dict, deps: RunDeps) -> list[str]:
+def failing_entities(queries: Mapping[str, Query], deps: RunDeps) -> list[str]:
     """Return the tracked entities whose last alert_streak fetches all failed: the retries did not fix them."""
     alert_streak = FETCH_THRESHOLDS["failed"]["alert_streak"]
     return [name for name in queries if deps.fetch_tracker.fail_streak(name) >= alert_streak]
@@ -180,7 +181,7 @@ def _report_failing(deps: RunDeps, failing: list[str]) -> None:
                         f"See `journalctl -u sports-calendar -p err` on the server.")
 
 
-def run_once(queries: dict, deps: RunDeps, version: str) -> None:
+def run_once(queries: Mapping[str, Query], deps: RunDeps, version: str) -> None:
     """Fetch and sync every entity that is due, then report the run. The systemd timer starts a run every 15 minutes."""
     fetched = run_cycle(queries, deps)
     report_run(deps, fetched, failing_entities(queries, deps), version)

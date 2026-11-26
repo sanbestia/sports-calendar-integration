@@ -6,8 +6,29 @@ environment variable that holds the Google Calendar ID (load_queries resolves it
 import json
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Literal
 
-REQUIRED_QUERY_FIELDS = {"id", "sport", "player_type", "calendar"}
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+
+class QueryEntry(BaseModel):
+    """One entry as queries.json holds it. `calendar` is the name of the env variable that holds the calendar ID."""
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(pattern=r"^[0-9]+$")  # a string, as the events store it: an int would never match one
+    sport: str = Field(min_length=1)
+    player_type: Literal["team", "player"]
+    calendar: str = Field(min_length=1)
+
+
+@dataclass(frozen=True)
+class Query:
+    """A tracked team or player as a run uses it: its AllSports id, sport and type, and the ID of its calendar."""
+    id: str
+    sport: str
+    player_type: str
+    calendar_id: str
 
 
 class QueryError(ValueError):
@@ -21,28 +42,31 @@ def read_queries(path: str) -> dict:
     return _read_entries(path)
 
 
-def load_queries(path: str, env: Mapping[str, str]) -> dict:
-    """Return the entries for a run: each one complete, with its calendar env key replaced by the calendar ID from env.
+def load_queries(path: str, env: Mapping[str, str]) -> dict[str, Query]:
+    """Return the checked entries for a run, each with the calendar ID that env holds under its calendar key.
 
     A missing file raises FileNotFoundError, unlike read_queries: a run with no entries would only hide the mistake.
     """
-    queries = _read_entries(path)
-    for name, entry in queries.items():
-        _check_required_fields(name, entry)
-        entry["calendar"] = _calendar_id(name, entry["calendar"], env)
-    return queries
+    return {name: Query(entry.id, entry.sport, entry.player_type, _calendar_id(name, entry.calendar, env))
+            for name, entry in parse_queries(_read_entries(path)).items()}
+
+
+def parse_queries(raw: Mapping[str, object]) -> dict[str, QueryEntry]:
+    """Check each entry of a parsed queries.json; raise ValueError that names the entry and its bad or missing fields."""
+    return {name: _parse_entry(name, entry) for name, entry in raw.items()}
+
+
+def _parse_entry(name: str, entry: object) -> QueryEntry:
+    try:
+        return QueryEntry.model_validate(entry)
+    except ValidationError as e:
+        problems = "; ".join(f"{'.'.join(map(str, error['loc'])) or 'entry'}: {error['msg']}" for error in e.errors())
+        raise ValueError(f"Query '{name}' is invalid: {problems}") from None
 
 
 def _read_entries(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
-
-
-def _check_required_fields(name: str, entry: Mapping[str, str]) -> None:
-    """Raise ValueError when the entry lacks a field that a run needs."""
-    missing = REQUIRED_QUERY_FIELDS - entry.keys()
-    if missing:
-        raise ValueError(f"Query '{name}' is missing required fields: {', '.join(sorted(missing))}")
 
 
 def _calendar_id(name: str, env_key: str, env: Mapping[str, str]) -> str:
