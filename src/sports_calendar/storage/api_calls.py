@@ -46,16 +46,17 @@ class APICallTracker(SqliteStore):
             self.count = 0
             self.current_date = today
 
-    def increment(self) -> None:
-        """Register one API call."""
+    def increment(self, reported_used: int = 0) -> None:
+        """Register one API call. reported_used is the day's count that RapidAPI sent, and a higher one wins: it also
+        counts calls this tracker never saw. RapidAPI's day may end at another hour; that can only stop fetches earlier."""
         self._reset_on_a_new_day()
-        self.count += 1
-        with self._connect() as conn:
-            # UPSERT: 'excluded' refers to the row that was going to be inserted
+        day = str(self.current_date)
+        with self._connect() as conn:  # the count is added in SQL, so two processes never lose a call
             conn.execute("""
-                INSERT INTO api_calls (date, count) VALUES (?, ?)
-                ON CONFLICT(date) DO UPDATE SET count = excluded.count
-            """, (str(self.current_date), self.count))
+                INSERT INTO api_calls (date, count) VALUES (?, MAX(1, ?))
+                ON CONFLICT(date) DO UPDATE SET count = MAX(count + 1, ?)
+            """, (day, reported_used, reported_used))
+            self.count = conn.execute("SELECT count FROM api_calls WHERE date = ?", (day,)).fetchone()[0]
 
     def is_limit_reached(self) -> bool:
         """Return True if the daily API call limit has been reached."""

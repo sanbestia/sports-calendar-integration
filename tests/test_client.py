@@ -69,7 +69,7 @@ def test_error_status_raises_and_is_counted(status, body, error, tracker):
     assert tracker.calls_on(tracker.current_date) == 1
 
 
-@pytest.mark.parametrize("failure", [requests.exceptions.ConnectionError, requests.exceptions.Timeout])
+@pytest.mark.parametrize("failure", [requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout])
 def test_failed_request_raises_and_is_not_counted(failure):
     """A request that never reached the API raises AllSportsError and does not use the budget."""
     tracker = MagicMock()
@@ -77,6 +77,26 @@ def test_failed_request_raises_and_is_not_counted(failure):
         make_client(FakeSession(failure), tracker).get("search/lakers", SearchResponse)
 
     tracker.increment.assert_not_called()
+
+
+def test_a_read_timeout_raises_and_is_counted(tracker):
+    """The request reached the API, which counts it, so the budget counts it too."""
+    with pytest.raises(AllSportsError, match="Couldn't communicate with sports API"):
+        make_client(FakeSession(requests.exceptions.ReadTimeout), tracker).get("search/lakers", SearchResponse)
+
+    assert tracker.calls_on(tracker.current_date) == 1
+
+
+@pytest.mark.parametrize("headers, stored_count", [
+    ({"x-ratelimit-requests-limit": "100", "x-ratelimit-requests-remaining": "60"}, 40),  # RapidAPI saw 40 calls today
+    ({}, 1),
+    ({"x-ratelimit-requests-limit": "100", "x-ratelimit-requests-remaining": "many"}, 1),
+])
+def test_the_count_that_rapidapi_sends_raises_the_local_count(headers, stored_count, tracker):
+    reply = FakeResponse(json.dumps(ONE_RESULT), headers=headers)
+    make_client(FakeSession(reply), tracker).get("search/lakers", SearchResponse)
+
+    assert tracker.calls_on(tracker.current_date) == stored_count
 
 
 def test_invalid_json_raises_with_path():
