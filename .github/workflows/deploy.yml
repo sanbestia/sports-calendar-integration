@@ -16,25 +16,37 @@ jobs:
     runs-on: ubuntu-latest
     # System packages are not upgraded here: unattended-upgrades on the VM installs security updates daily.
     steps:
+      - uses: actions/checkout@v4  # for deploy/known_hosts
+
+      - name: Set up SSH to the VM
+        env:
+          SSH_KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          VM_HOST: ${{ secrets.ORACLE_VM_HOST }}
+        # ssh accepts only the host keys in deploy/known_hosts, under an alias, so the IP stays a secret.
+        run: |
+          set -e
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/vm_key
+          chmod 600 ~/.ssh/vm_key
+          printf '%s\n' "Host vm" "  HostName $VM_HOST" "  User ubuntu" "  IdentityFile ~/.ssh/vm_key" \
+            "  HostKeyAlias sports-calendar-vm" "  UserKnownHostsFile $GITHUB_WORKSPACE/deploy/known_hosts" \
+            "  GlobalKnownHostsFile /dev/null" "  StrictHostKeyChecking yes" "  ConnectTimeout 30" > ~/.ssh/config
+
       - name: Write queries.json to VM
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.ORACLE_VM_HOST }}
-          username: ubuntu
-          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
-          script: |
-            # the state folder of the units (StateDirectory=); systemd creates it at the first start, but this step runs before
+        env:
+          QUERIES_JSON_B64: ${{ secrets.QUERIES_JSON_B64 }}
+        # unquoted SCRIPT: the runner puts the secret into the script, which reaches the VM on stdin, not on a command line
+        run: |
+          ssh vm bash -s <<SCRIPT
             set -e
+            # the state folder of the units (StateDirectory=); systemd creates it at the first start, but this step runs before
             sudo install -d -o ubuntu -g ubuntu -m 700 /var/lib/sports-calendar
-            echo '${{ secrets.QUERIES_JSON_B64 }}' | base64 -d > /var/lib/sports-calendar/queries.json
+            echo "$QUERIES_JSON_B64" | base64 -d > /var/lib/sports-calendar/queries.json
+          SCRIPT
 
       - name: Deploy to VM
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.ORACLE_VM_HOST }}
-          username: ubuntu
-          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
-          script: |
+        run: |
+          ssh vm bash -s <<'SCRIPT'
             # stop at the first failed command, so the job fails at that command and skips the steps after it
             set -e
             cd /home/ubuntu/sports_calendar_integration
@@ -51,3 +63,4 @@ jobs:
             sudo systemctl enable --now sports-calendar.timer sports-calendar-summary.timer
             # one run now, which waits for the run to end: a run that fails also fails this job
             sudo systemctl start sports-calendar.service
+          SCRIPT

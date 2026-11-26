@@ -1,5 +1,6 @@
 """Checks on the deploy files, so a later edit cannot quietly undo a fix that is only visible on the VM."""
 import configparser
+import shlex
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -124,10 +125,30 @@ def test_ci_checks_the_lock_file_like_the_deploy():
 def test_each_deploy_script_stops_at_the_first_failed_command():
     """Without set -e, a script goes on after a failed command, and the job reports only the last command."""
     lines = deploy_lines()
-    starts = [i for i, line in enumerate(lines) if line == "script: |"]
-    ends = [next((j for j in range(start + 1, len(lines)) if lines[j].startswith("- name:")), len(lines)) for start in starts]
+    starts = [i for i, line in enumerate(lines) if line.startswith("ssh vm bash -s <<")]
+    ends = [lines.index("SCRIPT", start + 1) for start in starts]
 
     assert len(starts) == 2  # write queries.json, then deploy
     for start, end in zip(starts, ends):
         commands = [line for line in lines[start + 1:end] if line and not line.startswith("#")]
         assert commands[0] == "set -e"
+
+
+
+def ssh_config() -> dict[str, str]:
+    """The ssh options that the deploy job writes to ~/.ssh/config, as {option: value}."""
+    text = DEPLOY_WORKFLOW.read_text()
+    command = text[text.index("printf '%s\\n' \"Host vm\""):text.index("> ~/.ssh/config")]
+    return dict(word.split(maxsplit=1) for word in shlex.split(command.replace("\\\n", " "))[2:])
+
+
+def test_the_deploy_accepts_only_the_vm_host_keys_in_the_repo():
+    """Without a host key check, a host that takes over the VM's address gets the deploy key and the secrets."""
+    config = ssh_config()
+    hosts = {line.split()[0] for line in (DEPLOY / "known_hosts").read_text().splitlines() if line}
+
+    assert config["StrictHostKeyChecking"] == "yes"
+    assert config["GlobalKnownHostsFile"] == "/dev/null"
+    assert config["UserKnownHostsFile"] == "$GITHUB_WORKSPACE/deploy/known_hosts"
+    assert hosts == {config["HostKeyAlias"]}
+    assert all("actions/checkout@" in line for line in deploy_lines() if line.startswith("- uses:"))
