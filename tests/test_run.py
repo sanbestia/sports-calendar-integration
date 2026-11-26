@@ -249,6 +249,17 @@ def test_history_records_an_empty_schedule():
     assert history_row(deps)["outcome"] == "empty"
 
 
+def test_a_sync_with_failed_changes_is_a_failed_fetch():
+    """A Calendar change that failed is retried after the failure wait, and from 3 in a row it alerts; the changes
+    that did go through are still in the history."""
+    deps = make_deps(sync_side_effect=(SyncResult(event_count=1, created=1, failed=2),))
+    run_cycle(ALCARAZ_QUERIES, deps)
+
+    deps.fetch_tracker.record_failure.assert_called_once_with("Carlos Alcaraz")
+    row = history_row(deps)
+    assert (row["outcome"], row["created"], row["error"]) == ("failed", 1, "2 calendar changes failed (see the log)")
+
+
 def test_history_records_a_failed_fetch():
     deps = make_deps(fetch_fails=True)
     run_cycle(ALCARAZ_QUERIES, deps)

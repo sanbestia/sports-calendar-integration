@@ -2,7 +2,7 @@
 import datetime
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sports_calendar.allsports.client import AllSportsClient
@@ -98,10 +98,21 @@ def _record_fetch(deps: RunDeps, name: str, entry: Query, result: FetchOutcome) 
     deps.fetch_tracker.record_fetch(name, result.earliest, event_count, player_type=entry.player_type)
 
 
+def _with_sync_failures(result: FetchOutcome) -> FetchOutcome:
+    """A sync whose Calendar changes partly failed is a failed fetch: it is retried soon, and a streak of them alerts.
+
+    The changes that went through stay in result.sync, so the history still records them.
+    """
+    failed = result.sync.failed if result.sync else 0
+    if not failed:
+        return result
+    return replace(result, outcome="failed", error=f"{failed} calendar change{'' if failed == 1 else 's'} failed (see the log)")
+
+
 def _fetch_sync_and_record(name: str, entry: Query, deps: RunDeps) -> FetchOutcome:
     """Fetch, sync and record one entity. An error other than a token error is logged and becomes a failure."""
     try:
-        result = _fetch_and_sync(name, entry, deps)
+        result = _with_sync_failures(_fetch_and_sync(name, entry, deps))
         _record_fetch(deps, name, entry, result)
         return result
     except TOKEN_ERRORS:

@@ -366,8 +366,8 @@ def test_continues_and_does_not_count_when_insert_fails(caplog):
         game_list=[make_match(game_id="1"), make_match(game_id="2")],
     )
 
-    assert result.event_count == 1
-    assert "An error occurred" in caplog.text
+    assert (result.event_count, result.created, result.failed) == (1, 1, 1)
+    assert "Could not create event" in caplog.text
 
 
 def test_continues_when_delete_fails(caplog):
@@ -382,7 +382,26 @@ def test_continues_when_delete_fails(caplog):
     )
 
     assert result.event_count == 1  # the new match is created; the orphan is not counted
+    assert (result.deleted, result.failed) == (0, 1)
     assert "Error deleting event" in caplog.text
+
+
+def test_a_failed_update_is_counted_and_the_sync_goes_on(caplog):
+    """One event that always fails to update must not block the other changes, the orphan deletes included."""
+    changed = make_existing_event(game_id="123", side_one="Old Name")
+    orphan = make_existing_event(game_id="999")
+    orphan["id"] = "orphan_event"
+    mock_service = make_mock_service([changed, orphan])
+    mock_service.events().update().execute.side_effect = make_http_error()
+
+    result = update_events(
+        service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
+        game_list=[make_match(game_id="123")],
+    )
+
+    mock_service.events().delete.assert_called_with(calendarId="cal", eventId="orphan_event")
+    assert (result.updated, result.deleted, result.failed) == (0, 1, 1)
+    assert "Could not update event" in caplog.text
 
 
 def test_count_excludes_deleted_orphan():
@@ -612,6 +631,26 @@ def test_raises_after_max_retries():
     with pytest.raises(HttpError):
         _execute_with_retry(request, clock)
     assert request.execute.call_count == _MAX_RETRIES
+
+
+def make_403(reason: str) -> HttpError:
+    """A 403 with the body that Google sends, whose reason says whether it is a rate limit."""
+    body = '{"error": {"code": 403, "message": "m", "errors": [{"domain": "d", "reason": "%s"}]}}' % reason
+    return HttpError(resp=MagicMock(status=403), content=body.encode())
+
+
+@pytest.mark.parametrize("reason, tries", [("rateLimitExceeded", 2), ("userRateLimitExceeded", 2), ("forbidden", 1)])
+def test_a_403_is_retried_only_when_it_is_a_rate_limit(reason, tries):
+    """Google sends its rate limits as 403 as well as 429; a 403 for a missing permission does not go away."""
+    clock = FakeClock()
+    request = make_request(side_effect=[make_403(reason), {"id": "abc"}])
+
+    try:
+        _execute_with_retry(request, clock)
+    except HttpError:
+        pass
+
+    assert request.execute.call_count == tries
 
 
 def test_raises_immediately_on_non_retryable_http_error():
