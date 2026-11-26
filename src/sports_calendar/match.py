@@ -7,10 +7,10 @@ GRAND_SLAM_EXTRA_HOURS = 2  # added for tennis at a Grand Slam, where men play b
 GRAND_SLAM_TOURNAMENTS = ("US Open", "Wimbledon", "Australian Open", "French Open")
 
 
-def expected_duration_hours(sport: str, tournament: str) -> int:
-    """Return how many hours a match of this sport and tournament is expected to last."""
+def expected_duration_hours(sport: str, season: str) -> int:
+    """Return how many hours a match of this sport and season is expected to last."""
     hours = BASE_DURATION_HOURS + EXTRA_HOURS_BY_SPORT.get(sport, 0)
-    if sport == "tennis" and any(name in tournament for name in GRAND_SLAM_TOURNAMENTS):  # the API adds the year: "Australian Open 2025"
+    if sport == "tennis" and any(name in season for name in GRAND_SLAM_TOURNAMENTS):  # the API adds the year: "Australian Open 2025"
         hours += GRAND_SLAM_EXTRA_HOURS
     return hours
 
@@ -23,7 +23,7 @@ class Match:
     """
     side_one: str
     side_two: str
-    tournament: str
+    season: str  # the API's season name, for example "NBA 25/26" or "French Open 2026"
     stage: str
     game_id: int | str
     sport: str
@@ -39,9 +39,9 @@ class Match:
     @property
     def expected_end_time(self) -> datetime.datetime:
         """The start time plus the expected length of the match."""
-        return self.start_time + datetime.timedelta(hours=expected_duration_hours(self.sport, self.tournament))
+        return self.start_time + datetime.timedelta(hours=expected_duration_hours(self.sport, self.season))
 
     def __str__(self) -> str:
-        """Return a one-line summary: sides, tournament, stage, and start time."""
-        return (f'{self.side_one} vs {self.side_two} - {self.tournament} ({self.stage}) @ '
+        """Return a one-line summary: sides, season, stage, and start time."""
+        return (f'{self.side_one} vs {self.side_two} - {self.season} ({self.stage}) @ '
                 f'{self.start_time.strftime("%Y-%m-%d %H:%M:%S")}')

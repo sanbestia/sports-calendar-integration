@@ -73,7 +73,7 @@ class FetchTracker(SqliteStore):
         with self._connect() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS fetch_log (
-                    team_name TEXT PRIMARY KEY,
+                    team_name TEXT PRIMARY KEY,  -- the entity's name: a team or a player (the stored name stays)
                     last_fetched TEXT NOT NULL,
                     next_match TEXT,
                     match_count INTEGER NOT NULL DEFAULT 0,
