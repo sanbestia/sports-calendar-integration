@@ -224,7 +224,7 @@ The service refreshes its Google token by itself. When Google refuses the token 
 uv run pytest -v
 ```
 
-The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths, the heartbeat's HTTP post), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. Only `main()` and `_build_and_run()` in `src/sports_calendar/service.py`, and the `main()` of each command, build the real ones.
+The tests need no secrets. Code gets its collaborators passed in (the AllSports client and its HTTP session, the clock, the prompts, the Calendar service, the Google auth calls and file paths, the heartbeat's HTTP post), so tests hand it the small fakes in `tests/fakes.py`. Nothing in the tests is patched. A mock that stands in for a collaborator is made with `create_autospec`, so a call with a renamed or missing argument fails the test, as it would fail in production. Only `main()` and `_build_and_run()` in `src/sports_calendar/service.py`, and the `main()` of each command, build the real ones.
 
 ### Continuous integration
 
