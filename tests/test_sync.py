@@ -404,6 +404,35 @@ def test_a_failed_update_is_counted_and_the_sync_goes_on(caplog):
     assert "Could not update event" in caplog.text
 
 
+def test_extra_copies_of_a_game_are_deleted():
+    """A copy that a past run created twice is never an orphan (its game is listed), so without this it stays forever.
+    The first copy that the Calendar lists stays; another entity's copies are its own sync's job."""
+    first, second = make_existing_event(game_id="123"), make_existing_event(game_id="123")
+    first["id"], second["id"] = "copy_1", "copy_2"
+    other_1, other_2 = (make_existing_event(game_id="777", home_team_id="x", away_team_id="y") for _ in range(2))
+    mock_service = make_mock_service([first, second, other_1, other_2])
+
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
+                           game_list=[make_match(game_id="123")])
+
+    mock_service.events().delete.assert_called_once_with(calendarId="cal", eventId="copy_2")
+    assert (result.event_count, result.deleted, result.failed) == (1, 1, 0)
+
+
+@pytest.mark.parametrize("error_status, tries, created", [(503, 1, 0), (429, 2, 1)])
+def test_an_insert_is_retried_only_after_a_rate_limit(error_status, tries, created):
+    """After a 5xx the event may exist already, and a second insert would make a copy; the next fetch sees which.
+    A rate limit refused the request, so a retry is safe."""
+    mock_service = make_mock_service([])
+    mock_service.events().insert().execute.side_effect = [make_http_error(error_status), {"summary": "ok"}]
+
+    result = update_events(service=mock_service, calendar_id="cal", time_zone="UTC", entity_id="h1",
+                           game_list=[make_match(game_id="1")], clock=FakeClock())
+
+    assert mock_service.events().insert().execute.call_count == tries
+    assert (result.created, result.failed) == (created, 1 - created)
+
+
 def test_count_excludes_deleted_orphan():
     """The returned count holds the kept events plus the created ones, not the deleted orphans."""
     kept = make_existing_event(game_id="123")
