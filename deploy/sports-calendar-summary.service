@@ -6,6 +6,11 @@ Description=Sports Calendar Integration daily summary
 [Service]
 Type=oneshot
 User=ubuntu
+# User=ubuntu has passwordless sudo: NoNewPrivileges blocks sudo, and any setuid program, for the run.
+# PrivateTmp gives the run its own /tmp, and ProtectSystem=full makes /usr, /boot and /etc read-only for it.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
 # the same state folder as the run (see sports-calendar.service)
 StateDirectory=sports-calendar
 StateDirectoryMode=0700
